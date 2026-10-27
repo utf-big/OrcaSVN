@@ -35,6 +35,18 @@ export function getCachedSvnInfoMetadata(path: string): SvnInfoMetadata | null {
   return cached.metadata
 }
 
+/** Drops cached metadata for one workspace, e.g. after a `switch` changed its URL. */
+export function invalidateSvnInfoMetadata(path: string): void {
+  try {
+    const cache = readCache()
+    if (!(path in cache)) return
+    delete cache[path]
+    localStorage.setItem(SVN_INFO_CACHE_KEY, JSON.stringify(cache))
+  } catch {
+    // Caching is an optimization; a storage failure must not block SVN operations.
+  }
+}
+
 export function cacheSvnInfoMetadata(path: string, metadata: SvnInfoMetadata): void {
   try {
     const cache = readCache()

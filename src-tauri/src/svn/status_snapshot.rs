@@ -1,5 +1,5 @@
 //! A disk snapshot is usable only after comparing a fresh filesystem inventory.
-use crate::SvnStatus;
+use crate::models::SvnStatus;
 use serde::{Deserialize, Serialize};
 use std::collections::BTreeMap;
 use std::fs;

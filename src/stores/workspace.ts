@@ -62,7 +62,9 @@ export const useWorkspaceStore = defineStore('workspace', () => {
   })
 
   const missingCount = computed(() => {
-    return statusList.value.filter(s => s.status_code === 'missing').length
+    // `name_mismatch` is a file that exists under a canonically equal name, so
+    // it belongs to the same "missing from SVN's view" bucket as `missing`.
+    return statusList.value.filter(s => s.status_code === 'missing' || s.status_code === 'name_mismatch').length
   })
 
   function rememberWorkspace(path: string) {

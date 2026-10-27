@@ -18,6 +18,7 @@ function harness() {
     setError(error) { this.error = error },
   }
   const mocks = {
+    '@/utils/errors': { errorMessage: error => (error && typeof error === 'object' && 'message' in error ? error.message : String(error)) },
     vue: {
       ...vue, watch() {}, onUnmounted() {},
       onActivated(fn) { lifecycle.activate = fn },
@@ -27,6 +28,19 @@ function harness() {
     'vue-i18n': { useI18n: () => ({ t: key => key, locale: vue.ref('en-US') }) },
     'element-plus/es/components/message/index': { ElMessage: { success() {}, error() {} } },
     '@/stores/workspace': { useWorkspaceStore: () => store },
+    '@/stores/checkout': {
+      useCheckoutStore: () => ({
+        session: null,
+        begin() {}, markCancelled() {}, markFailed() {}, complete() {}, clear() {},
+        resumable: () => false, running: () => false,
+      }),
+    },
+    '@tauri-apps/api/event': { listen: async () => () => {} },
+    '@/utils/checkoutProgress': {
+      countedItems: () => 0,
+      createProgressState: () => ({ lines: [], total: 0, counters: {} }),
+      pushCheckoutLine: () => {},
+    },
     '@/composables/useWorkspace': { useWorkspace: () => ({
       refreshStatusIfStale: async () => false,
       refreshStatusAfterMutation: async () => {
@@ -40,6 +54,8 @@ function harness() {
     '@/composables/useSettings': { useSettings: () => ({ settings: {} }) },
     '@/composables/useSvnStatus': {},
     '@/api/svn': {
+      svnCleanup: async () => ({ success: true, output: '', error: null }),
+      svnResumeCheckout: async () => ({ output: '', attempts: 1, revision: 1, salvaged: false, failed: [], missingFiles: [] }),
       svnUpdate: async () => { calls.push('update'); await update.promise },
       svnRemoteInfo: async () => { calls.push('remote'); return { revision: 2 } },
     },

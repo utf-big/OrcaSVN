@@ -63,6 +63,14 @@
             <el-icon><Edit /></el-icon>
             <span>{{ $t('menu.blame') }}</span>
           </button>
+          <button class="sidebar-row" :disabled="!workspaceStore.svnInfo" @click="switchVisible = true">
+            <el-icon><Switch /></el-icon>
+            <span>{{ $t('workspace.switchUrl') }}</span>
+          </button>
+          <button class="sidebar-row" @click="mergeVisible = true">
+            <el-icon><Connection /></el-icon>
+            <span>{{ $t('workspace.merge') }}</span>
+          </button>
         </div>
         <div v-if="workspaceStore.svnInfo" class="repository-meta">
           <div><span>URL</span><strong>{{ workspaceStore.svnInfo.url }}</strong></div>
@@ -111,6 +119,22 @@
           </button>
         </div>
 
+        <div v-if="duplicateFiles.length" class="name-mismatch-notice" role="status">
+          <span>{{ $t('workspace.duplicateNotice', { count: duplicateFiles.length }) }}</span>
+          <el-button text size="small" type="primary"
+            :disabled="pendingFileAction !== null || workspaceStore.statusIsStale"
+            @click="handleDeleteDuplicates(duplicateFiles.map(file => file.path))">
+            {{ $t('workspace.deleteDuplicates') }}
+          </el-button>
+        </div>
+        <div v-if="nameMismatchFiles.length" class="name-mismatch-notice" role="status">
+          <span>{{ $t('workspace.nameMismatchNotice', { count: nameMismatchFiles.length }) }}</span>
+          <el-button text size="small" type="primary"
+            :disabled="pendingFileAction !== null || workspaceStore.statusIsStale"
+            @click="handleRepairNames(nameMismatchFiles.map(file => file.path))">
+            {{ $t('workspace.repairAllNames') }}
+          </el-button>
+        </div>
         <div v-if="workspaceStore.statusIsStale" class="cached-status-notice" role="status">
           {{ $t('workspace.cachedStatus') }}<span v-if="workspaceStore.isLoading"> · {{ $t('common.loading') }}</span>
         </div>
@@ -161,7 +185,47 @@
                       </el-button>
                     </span>
                   </el-tooltip>
-                  <el-tooltip :content="fileActionLabel(file)" placement="top" :show-after="150">
+                  <el-tooltip v-if="canScheduleDelete(file)" :content="$t('workspace.scheduleDelete')" placement="top" :show-after="150">
+                    <span class="file-action-trigger" :title="$t('workspace.scheduleDelete')" @click.stop>
+                      <el-button text size="small" type="danger" :aria-label="$t('workspace.scheduleDelete')"
+                        :disabled="pendingFileAction !== null || workspaceStore.statusIsStale" @click="handleScheduleDelete(file)">
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </span>
+                  </el-tooltip>
+                  <el-dropdown v-if="canResolve(file)" trigger="click" placement="bottom-end" @click.stop>
+                    <span class="file-action-trigger" :title="$t('workspace.resolveFile')" @click.stop>
+                      <el-button text size="small" :aria-label="$t('workspace.resolveFile')"
+                        :disabled="pendingFileAction !== null || workspaceStore.statusIsStale">
+                        <el-icon><Check /></el-icon>
+                      </el-button>
+                    </span>
+                    <template #dropdown>
+                      <el-dropdown-menu>
+                        <el-dropdown-item v-for="strategy in RESOLVE_STRATEGIES" :key="strategy"
+                          :command="strategy" @click.stop="handleResolve(file, strategy)">
+                          {{ $t(`workspace.resolveStrategy.${strategy}`) }}
+                        </el-dropdown-item>
+                      </el-dropdown-menu>
+                    </template>
+                  </el-dropdown>
+                  <el-tooltip v-if="canDeleteDuplicate(file)" :content="$t('workspace.deleteDuplicate')" placement="top" :show-after="150">
+                    <span class="file-action-trigger" :title="$t('workspace.deleteDuplicate')" @click.stop>
+                      <el-button text size="small" type="danger" :aria-label="$t('workspace.deleteDuplicate')"
+                        :disabled="pendingFileAction !== null || workspaceStore.statusIsStale" @click="handleDeleteDuplicates([file.path])">
+                        <el-icon><Delete /></el-icon>
+                      </el-button>
+                    </span>
+                  </el-tooltip>
+                  <el-tooltip v-else-if="canRepairName(file)" :content="$t('workspace.repairName')" placement="top" :show-after="150">
+                    <span class="file-action-trigger" :title="$t('workspace.repairName')" @click.stop>
+                      <el-button text size="small" type="primary" :aria-label="$t('workspace.repairName')"
+                        :disabled="pendingFileAction !== null || workspaceStore.statusIsStale" @click="handleRepairNames([file.path])">
+                        <el-icon><Edit /></el-icon>
+                      </el-button>
+                    </span>
+                  </el-tooltip>
+                  <el-tooltip v-else :content="fileActionLabel(file)" placement="top" :show-after="150">
                     <span class="file-action-trigger" :title="fileActionLabel(file)" @click.stop>
                       <el-button text size="small" type="danger" :aria-label="fileActionLabel(file)"
                         :disabled="pendingFileAction !== null || workspaceStore.statusIsStale" @click="handleFileAction(file)">
@@ -207,6 +271,12 @@
             <el-icon><Connection /></el-icon>
             {{ $t('diff.title') }}
           </span>
+          <el-button class="remote-repository-button" text size="small" :disabled="!remoteRepositoryUrl"
+            :title="remoteRepositoryUrl || $t('workspace.remoteRepositoryUnavailable')"
+            @click="openRemoteRepository">
+            <el-icon><Link /></el-icon>
+            {{ $t('workspace.remoteRepository') }}
+          </el-button>
         </div>
         <div class="panel-content" :aria-busy="isLoadingDiff">
           <GlassLoading :active="isLoadingDiff" :label="$t('common.loading')" />
@@ -234,6 +304,20 @@
         </div>
       </aside>
     </div>
+
+    <SwitchRepositoryDialog
+      v-model="switchVisible"
+      :workspace-path="workspaceStore.currentPath"
+      :current-url="workspaceStore.svnInfo?.url || ''"
+      @done="refreshAfterRepositoryChange"
+    />
+    <MergeDialog
+      v-model="mergeVisible"
+      :workspace-path="workspaceStore.currentPath"
+      :current-url="workspaceStore.svnInfo?.url || ''"
+      :svn-info="workspaceStore.svnInfo"
+      @done="refreshAfterRepositoryChange"
+    />
   </div>
 </template>
 
@@ -241,17 +325,23 @@
 import { h, ref, computed, nextTick, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { deleteUnversioned, revealWorkspaceFile, svnCleanup, svnRevert, svnDiff } from '@/api/svn'
+import { open } from '@tauri-apps/plugin-shell'
+import { deleteUnversioned, revealWorkspaceFile, svnCleanup, svnDelete, svnDeleteDuplicates, svnRepairNames, svnResolve, svnRevert, svnDiff } from '@/api/svn'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { ElMessageBox } from 'element-plus/es/components/message-box/index'
 import { getStatusClass, getStatusLabelKey } from '@/composables/useSvnStatus'
+import { canDeleteDuplicate, canRepairName, canResolve, canScheduleDelete, RESOLVE_STRATEGIES, rowOperation, type FileOperation, type ResolveStrategy } from '@/utils/statusAction'
 import { useWorkspace } from '@/composables/useWorkspace'
 import VirtualViewport from '@/components/VirtualViewport.vue'
 import DiffViewer from '@/components/DiffViewer.vue'
 import GlassLoading from '@/components/GlassLoading.vue'
+import SwitchRepositoryDialog from '@/components/SwitchRepositoryDialog.vue'
+import MergeDialog from '@/components/MergeDialog.vue'
+import { invalidateSvnInfoMetadata } from '@/utils/svnInfoCache'
 import { writeClipboardText } from '@/utils/clipboard'
 import type { SvnStatus, DiffResult } from '@/types'
+import { errorMessage } from '@/utils/errors'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -261,6 +351,8 @@ const { openWorkspace: openWorkspaceDialog, refreshStatus, refreshStatusAfterMut
 const filter = ref<'all' | 'modified' | 'added' | 'conflicted' | 'missing'>('all')
 const selectedFile = ref<string | null>(null)
 const isLoadingDiff = ref(false)
+const switchVisible = ref(false)
+const mergeVisible = ref(false)
 const diffResult = ref<DiffResult | null>(null)
 let diffRequestGeneration = 0
 let fileActionWorkspaceGeneration = 0
@@ -280,13 +372,19 @@ const fileViewport = ref<InstanceType<typeof VirtualViewport> | null>(null)
 const fileRowHeight = 48
 const diffStats = ref({ added: 0, removed: 0 })
 
+// Files whose on-disk Unicode form differs from the repository spelling; see
+// collapse_name_mismatches in the backend.
+const nameMismatchFiles = computed(() => workspaceStore.statusList.filter(canRepairName))
+// Repository-side duplicates need a deletion, not a rename.
+const duplicateFiles = computed(() => workspaceStore.statusList.filter(canDeleteDuplicate))
+
 const filteredFiles = computed(() => {
   if (filter.value === 'all') return workspaceStore.statusList
   return workspaceStore.statusList.filter(f => {
     if (filter.value === 'modified') return ['modified', 'added', 'deleted', 'replaced'].includes(f.status_code)
     if (filter.value === 'added') return f.status_code === 'unversioned'
     if (filter.value === 'conflicted') return f.status_code === 'conflicted' || f.prop_status === 'conflicted'
-    if (filter.value === 'missing') return f.status_code === 'missing'
+    if (filter.value === 'missing') return ['missing', 'name_mismatch', 'name_duplicate'].includes(f.status_code)
     return true
   })
 })
@@ -347,13 +445,27 @@ const doCheckout = () => router.push({ name: 'checkout' })
 
 const doCommit = () => router.push({ name: 'commit' })
 
+/** The remote address of the current working copy, empty when it is unknown. */
+const remoteRepositoryUrl = computed(() => workspaceStore.svnInfo?.url ?? '')
+
+/** Opens the repository in the system browser; SVN URLs are web addresses. */
+const openRemoteRepository = async () => {
+  const url = remoteRepositoryUrl.value
+  if (!url) return
+  try {
+    await open(url)
+  } catch (error) {
+    ElMessage.error(`${t('common.error')}：${errorMessage(error)}`)
+  }
+}
+
 const doCleanup = async () => {
   if (!workspaceStore.currentPath) return
   try {
     await svnCleanup(workspaceStore.currentPath)
     await refreshStatusAfterMutation()
   } catch (err) {
-    workspaceStore.setError(String(err))
+    workspaceStore.setError(errorMessage(err))
   }
 }
 
@@ -413,7 +525,7 @@ const revealSelectedFile = async () => {
   try {
     await revealWorkspaceFile(workspaceStore.currentPath, file.path)
   } catch (err) {
-    ElMessage.error(`${t('common.error')}：${err}`)
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
   } finally {
     hideFileContextMenu()
   }
@@ -447,16 +559,39 @@ onBeforeUnmount(() => {
   document.removeEventListener('keydown', handleDocumentKeydown)
 })
 
-const fileActionLabel = (file: SvnStatus) => t(file.status_code === 'unversioned' ? 'common.delete' : 'common.revert')
+const fileActionLabel = (file: SvnStatus) => t(rowOperation(file) === 'deleteUnversioned' ? 'common.delete' : 'common.revert')
 
-const handleFileAction = async (file: SvnStatus) => {
+type OperationCopy = { title: string; message: string; confirm: string }
+
+const operationCopy = (operation: FileOperation): OperationCopy => {
+  switch (operation) {
+    case 'deleteUnversioned':
+      return { title: 'common.delete', message: 'workspace.deleteUnversionedConfirm', confirm: 'common.delete' }
+    case 'scheduleDelete':
+      return { title: 'workspace.scheduleDelete', message: 'workspace.scheduleDeleteConfirm', confirm: 'workspace.scheduleDelete' }
+    case 'resolve':
+      return { title: 'workspace.resolveFile', message: 'workspace.resolveFileConfirm', confirm: 'common.confirm' }
+    default:
+      return { title: 'common.revert', message: 'workspace.revertFileConfirm', confirm: 'common.revert' }
+  }
+}
+
+const runFileOperation = async (
+  file: SvnStatus,
+  operation: FileOperation,
+  strategy?: ResolveStrategy,
+) => {
   hideFileContextMenu()
   const workspacePath = workspaceStore.currentPath
   if (!workspacePath || pendingFileAction.value !== null || workspaceStore.statusIsStale) return
   const path = file.path
   const statusCode = file.status_code
   const propStatus = file.prop_status
-  const isUnversioned = statusCode === 'unversioned'
+  // Guard the SVN action against a stale row: only a missing file may be
+  // scheduled for deletion and only a conflicted one may be marked resolved.
+  if (operation === 'scheduleDelete' && statusCode !== 'missing') return
+  if (operation === 'resolve' && statusCode !== 'conflicted' && propStatus !== 'conflicted') return
+  const copy = operationCopy(operation)
   const generation = fileActionWorkspaceGeneration
   const isCurrent = () => generation === fileActionWorkspaceGeneration && workspaceStore.currentPath === workspacePath
   pendingFileAction.value = path
@@ -464,15 +599,18 @@ const handleFileAction = async (file: SvnStatus) => {
     try {
       await ElMessageBox.confirm(
         h('div', [
-          h('p', t(isUnversioned ? 'workspace.deleteUnversionedConfirm' : 'workspace.revertFileConfirm')),
+          h('p', t(copy.message, {
+            count: 1,
+            strategy: strategy ? t(`workspace.resolveStrategy.${strategy}`) : '',
+          })),
           h('code', { class: 'workspace-file-confirm__path' }, joinWorkspacePath(workspacePath, path)),
         ]),
-        t(isUnversioned ? 'common.delete' : 'common.revert'),
+        t(copy.title),
         {
           type: 'warning',
           customClass: 'workspace-file-confirm',
-          confirmButtonText: t(isUnversioned ? 'common.delete' : 'common.revert'),
-          confirmButtonType: 'danger',
+          confirmButtonText: t(copy.confirm),
+          confirmButtonType: operation === 'resolve' ? 'primary' : 'danger',
           cancelButtonText: t('common.cancel'),
           closeOnClickModal: false,
           autofocus: false,
@@ -488,7 +626,9 @@ const handleFileAction = async (file: SvnStatus) => {
     // the dialog is open. Such a target requires a new confirmation.
     const currentFile = workspaceStore.statusList.find(entry => entry.path === path)
     if (!currentFile || currentFile.status_code !== statusCode || currentFile.prop_status !== propStatus) return
-    if (isUnversioned) await deleteUnversioned(workspacePath, [path])
+    if (operation === 'deleteUnversioned') await deleteUnversioned(workspacePath, [path])
+    else if (operation === 'scheduleDelete') await svnDelete(workspacePath, [path])
+    else if (operation === 'resolve') await svnResolve(workspacePath, [path], strategy || 'working')
     else await svnRevert(workspacePath, [path])
     if (!isCurrent()) return
     await refreshStatusAfterMutation()
@@ -499,11 +639,112 @@ const handleFileAction = async (file: SvnStatus) => {
       isLoadingDiff.value = false
     }
   } catch (err) {
-    if (isCurrent()) workspaceStore.setError(String(err))
+    if (isCurrent()) workspaceStore.setError(errorMessage(err))
   } finally {
     pendingFileAction.value = null
   }
 }
+
+// A switch or merge changes the repository URL or the base, so the cached
+// SVN metadata of the workspace must be dropped before refreshing.
+const refreshAfterRepositoryChange = async () => {
+  const path = workspaceStore.currentPath
+  if (!path) return
+  invalidateSvnInfoMetadata(path)
+  await refreshStatusAfterMutation()
+}
+
+const handleFileAction = (file: SvnStatus) => runFileOperation(file, rowOperation(file))
+
+/**
+ * Renames files whose on-disk Unicode form differs from the repository spelling.
+ * Only the name changes; nothing is committed and no content is touched.
+ */
+const handleRepairNames = async (files: string[]) => {
+  const workspacePath = workspaceStore.currentPath
+  if (!workspacePath || pendingFileAction.value !== null || workspaceStore.statusIsStale || files.length === 0) return
+  const generation = fileActionWorkspaceGeneration
+  const isCurrent = () => generation === fileActionWorkspaceGeneration && workspaceStore.currentPath === workspacePath
+  pendingFileAction.value = files[0]
+  try {
+    const body = [h('p', t('workspace.repairNameConfirm', { count: files.length }))]
+    if (files.length === 1) {
+      body.push(h('code', { class: 'workspace-file-confirm__path' }, joinWorkspacePath(workspacePath, files[0])))
+    }
+    try {
+      await ElMessageBox.confirm(h('div', body), t('workspace.repairName'), {
+        type: 'warning',
+        customClass: 'workspace-file-confirm',
+        confirmButtonText: t('workspace.repairName'),
+        confirmButtonType: 'primary',
+        cancelButtonText: t('common.cancel'),
+        closeOnClickModal: false,
+        autofocus: false,
+        distinguishCancelAndClose: true,
+      })
+    } catch (action) {
+      if (action === 'cancel' || action === 'close') return
+      throw action
+    }
+    if (!isCurrent() || workspaceStore.statusIsStale) return
+    const repaired = await svnRepairNames(workspacePath, files)
+    if (!isCurrent()) return
+    await refreshStatusAfterMutation()
+    ElMessage.success(t('workspace.repairDone', { count: repaired }))
+  } catch (err) {
+    if (isCurrent()) workspaceStore.setError(errorMessage(err))
+  } finally {
+    pendingFileAction.value = null
+  }
+}
+
+/**
+ * Removes the repository-side duplicate spelling. The local file is kept and the
+ * deletion is only scheduled: the user reviews and commits it on the commit page,
+ * after which checkouts of this repository are clean.
+ */
+const handleDeleteDuplicates = async (files: string[]) => {
+  const workspacePath = workspaceStore.currentPath
+  if (!workspacePath || pendingFileAction.value !== null || workspaceStore.statusIsStale || files.length === 0) return
+  const generation = fileActionWorkspaceGeneration
+  const isCurrent = () => generation === fileActionWorkspaceGeneration && workspaceStore.currentPath === workspacePath
+  pendingFileAction.value = files[0]
+  try {
+    const body = [h('p', t('workspace.deleteDuplicateConfirm', { count: files.length }))]
+    if (files.length === 1) {
+      body.push(h('code', { class: 'workspace-file-confirm__path' }, joinWorkspacePath(workspacePath, files[0])))
+    }
+    try {
+      await ElMessageBox.confirm(h('div', body), t('workspace.deleteDuplicate'), {
+        type: 'warning',
+        customClass: 'workspace-file-confirm',
+        confirmButtonText: t('workspace.deleteDuplicate'),
+        confirmButtonType: 'danger',
+        cancelButtonText: t('common.cancel'),
+        closeOnClickModal: false,
+        autofocus: false,
+        distinguishCancelAndClose: true,
+      })
+    } catch (action) {
+      if (action === 'cancel' || action === 'close') return
+      throw action
+    }
+    if (!isCurrent() || workspaceStore.statusIsStale) return
+    const result = await svnDeleteDuplicates(workspacePath, files)
+    if (!isCurrent()) return
+    await refreshStatusAfterMutation()
+    ElMessage.success(t('workspace.duplicateQueued', { count: files.length }))
+    void result
+  } catch (err) {
+    if (isCurrent()) workspaceStore.setError(errorMessage(err))
+  } finally {
+    pendingFileAction.value = null
+  }
+}
+
+const handleScheduleDelete = (file: SvnStatus) => runFileOperation(file, 'scheduleDelete')
+
+const handleResolve = (file: SvnStatus, strategy: ResolveStrategy) => runFileOperation(file, 'resolve', strategy)
 
 </script>
 
@@ -805,6 +1046,25 @@ const handleFileAction = async (file: SvnStatus) => {
 .file-status.status-added {
   background: var(--app-color-status-added-bg);
   color: var(--app-color-status-added-text);
+}
+
+.name-mismatch-notice {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 0 12px 8px;
+  padding: 6px 10px;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-status-unversioned-bg);
+  color: var(--app-color-status-unversioned-text);
+  font-size: var(--app-font-size-sm);
+}
+
+.file-status.status-name-mismatch {
+  background: var(--app-color-status-unversioned-bg);
+  color: var(--app-color-status-unversioned-text);
 }
 
 .file-status.status-deleted,
@@ -1138,6 +1398,17 @@ const handleFileAction = async (file: SvnStatus) => {
 
 .sidebar-row b {
   font-size: var(--app-font-size-2xs);
+}
+
+.remote-repository-button {
+  height: 24px;
+  padding: 0 6px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--app-font-size-sm);
+}
+
+.remote-repository-button .el-icon {
+  margin-right: 4px;
 }
 
 .repository-meta {

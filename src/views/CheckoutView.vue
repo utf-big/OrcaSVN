@@ -68,6 +68,10 @@
             <el-icon><Download /></el-icon>
             {{ $t('checkout.startCheckout') }}
           </el-button>
+          <el-button v-if="loading" type="danger" plain @click="cancelCheckout" size="large">
+            <el-icon><Close /></el-icon>
+            {{ $t('common.cancel') }}
+          </el-button>
           <el-button @click="resetForm" size="large">
             <el-icon><RefreshLeft /></el-icon>
             {{ $t('common.reset') }}
@@ -75,39 +79,89 @@
         </el-form-item>
       </el-form>
 
-      <div v-if="output" class="output-area animate-fade-in">
+      <div v-if="state !== 'idle'" class="output-area animate-fade-in">
         <div class="output-header">
           <span class="output-title">
             <el-icon><Document /></el-icon>
-            {{ $t('checkout.output') }}
+            {{ $t('checkout.progressTitle') }}
           </span>
-          <el-tag :type="output.includes('Error') ? 'danger' : 'success'" size="small">
-            {{ output.includes('Error') ? $t('common.error') : $t('common.success') }}
-          </el-tag>
+          <el-tag :type="statusTag" size="small">{{ statusText }}</el-tag>
         </div>
-        <el-input
-          v-model="output"
-          type="textarea"
-          :rows="10"
-          readonly
-          class="output-textarea"
-        />
+
+        <div class="progress-summary">
+          <span>{{ $t('checkout.progressCounters', progress.counters) }}</span>
+          <span v-if="countedItems(progress.counters) > 0">· {{ $t('checkout.progressTotal', { count: countedItems(progress.counters) }) }}</span>
+          <span>· {{ $t('checkout.elapsed', { seconds: elapsedSeconds }) }}</span>
+          <span v-if="attempts > 1">· {{ $t('checkout.attempts', { attempt: attempts }) }}</span>
+        </div>
+
+        <p v-if="failureText" class="progress-failure">{{ failureText }}</p>
+
+        <div ref="logBox" class="progress-log" role="log" aria-live="polite">
+          <p v-if="!progress.lines.length" class="progress-empty">{{ $t('checkout.progressEmpty') }}</p>
+          <div v-for="(line, index) in progress.lines" :key="index" class="progress-line" :class="`is-${line.kind}`">{{ line.text }}</div>
+        </div>
+
+        <p v-if="missingFiles.length" class="progress-failure">
+          {{ $t('checkout.missingFiles', { count: missingFiles.length }) }}
+          <span class="salvage-list">{{ missingFiles.join('、') }}</span>
+        </p>
+        <p v-if="salvageFailed.length" class="progress-failure">
+          {{ $t('checkout.salvageIncomplete', { count: salvageFailed.length }) }}
+          <span class="salvage-list">{{ salvageFailed.join('、') }}</span>
+        </p>
+        <div class="progress-footer">
+          <span>{{ $t('checkout.progressLines', { count: progress.total, shown: progress.lines.length }) }}</span>
+          <div class="progress-actions">
+            <el-button v-if="state === 'failed'" size="small" :loading="loading" @click="doCheckout">
+              <el-icon><RefreshRight /></el-icon>
+              {{ $t('checkout.retry') }}
+            </el-button>
+            <el-button v-if="state === 'failed'" size="small" type="primary" :loading="loading" @click="doSalvage">
+              <el-icon><Download /></el-icon>
+              {{ $t('checkout.salvage') }}
+            </el-button>
+            <el-button v-if="state === 'failed' || state === 'cancelled'" size="small" :loading="cleaning"
+              :title="$t('workspace.quickCleanupHint')" @click="doCleanup">
+              <el-icon><Brush /></el-icon>
+              {{ $t('common.cleanup') }}
+            </el-button>
+            <el-button v-if="state === 'success' && workspaceStore.currentPath === form.path" size="small" type="primary"
+              @click="router.push({ name: 'workspace' })">
+              <el-icon><FolderOpened /></el-icon>
+              {{ $t('workspace.openWorkspace') }}
+            </el-button>
+          </div>
+        </div>
       </div>
     </el-card>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, reactive } from 'vue'
+import { computed, nextTick, onUnmounted, reactive, ref } from 'vue'
 import { useRouter } from 'vue-router'
+import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { svnCheckout } from '@/api/svn'
+import { useCheckoutStore } from '@/stores/checkout'
+import { svnCancel, svnCheckoutSalvage, svnCheckoutStream, svnCleanup } from '@/api/svn'
+import { useWorkspace } from '@/composables/useWorkspace'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useI18n } from 'vue-i18n'
+import { ElMessage } from 'element-plus/es/components/message/index'
+import { errorMessage } from '@/utils/errors'
+import {
+  countedItems,
+  createProgressState,
+  pushCheckoutLine,
+  type CheckoutLineKind,
+} from '@/utils/checkoutProgress'
 
 const { t } = useI18n()
 const router = useRouter()
 const workspaceStore = useWorkspaceStore()
+const checkoutStore = useCheckoutStore()
+const { refreshStatusAfterMutation } = useWorkspace()
 
 const form = reactive({
   url: '',
@@ -116,7 +170,60 @@ const form = reactive({
 })
 
 const loading = ref(false)
-const output = ref('')
+const cancelled = ref(false)
+// Progress is page state only: switching away destroys the view, so nothing is
+// persisted and nothing survives a navigation.
+const state = ref<'idle' | 'running' | 'success' | 'failed' | 'cancelled'>('idle')
+const progress = reactive(createProgressState())
+const failureText = ref('')
+const attempts = ref(0)
+const salvageFailed = ref<string[]>([])
+const missingFiles = ref<string[]>([])
+const cleaning = ref(false)
+const elapsedSeconds = ref(0)
+const logBox = ref<HTMLElement | null>(null)
+let unlisten: UnlistenFn | null = null
+let elapsedTimer: number | undefined
+
+const statusTag = computed(() => {
+  if (state.value === 'success') return 'success'
+  if (state.value === 'failed') return 'danger'
+  if (state.value === 'cancelled') return 'info'
+  return 'primary'
+})
+const statusText = computed(() => {
+  switch (state.value) {
+    case 'running': return t('checkout.statusRunning')
+    case 'success': return t('checkout.statusSuccess')
+    case 'failed': return t('checkout.statusFailed')
+    case 'cancelled': return t('checkout.statusCancelled')
+    default: return t('checkout.progressTitle')
+  }
+})
+
+const scrollLogToBottom = async () => {
+  await nextTick()
+  const box = logBox.value
+  if (box) box.scrollTop = box.scrollHeight
+}
+
+const startElapsedTimer = () => {
+  elapsedSeconds.value = 0
+  stopElapsedTimer()
+  elapsedTimer = window.setInterval(() => { elapsedSeconds.value += 1 }, 1000)
+}
+
+const stopElapsedTimer = () => {
+  if (elapsedTimer !== undefined) {
+    window.clearInterval(elapsedTimer)
+    elapsedTimer = undefined
+  }
+}
+
+const stopListening = () => {
+  unlisten?.()
+  unlisten = null
+}
 
 const selectDirectory = async () => {
   const selected = await open({
@@ -135,31 +242,148 @@ const doCheckout = async () => {
     return
   }
 
+  cancelled.value = false
+  failureText.value = ''
+  attempts.value = 0
+  Object.assign(progress, createProgressState())
+  salvageFailed.value = []
+  missingFiles.value = []
+  state.value = 'running'
   loading.value = true
-  output.value = ''
+  // The target becomes the current workspace immediately, so it can be opened
+  // from the sidebar while the checkout is still running. Its status is unknown
+  // until the first scan, so the list is cleared and marked unverified.
+  checkoutStore.begin(form.url, form.path, form.revision)
+  workspaceStore.setCurrentPath(form.path)
+  workspaceStore.setStatusList([])
+  workspaceStore.setSvnInfo(null)
+  workspaceStore.setStatusIsStale(true)
+  startElapsedTimer()
+  stopListening()
+  unlisten = await listen<{ kind: CheckoutLineKind; line: string }>('checkout-progress', event => {
+    pushCheckoutLine(progress, event.payload.kind, event.payload.line)
+    void scrollLogToBottom()
+  })
 
   try {
-    const result = await svnCheckout(form.url, form.path, form.revision)
-    output.value = result.output
+    const report = await svnCheckoutStream(form.url, form.path, form.revision)
+    attempts.value = report.attempts
+    salvageFailed.value = report.failed ?? []
+    missingFiles.value = report.missingFiles ?? []
+    state.value = 'success'
+    checkoutStore.complete()
+    // The workspace is already current; fill in the file list it did not have
+    // while the checkout was running.
+    await refreshStatusAfterMutation()
 
-    workspaceStore.setCurrentPath(form.path)
-
-    setTimeout(() => {
-      router.push({ name: 'workspace' })
-    }, 1500)
+    // Keep the report on screen when something is missing, so the user can read
+    // which files the server could not deliver.
+    if (!report.salvaged && (report.missingFiles?.length ?? 0) === 0) {
+      setTimeout(() => {
+        router.push({ name: 'workspace' })
+      }, 1500)
+    }
   } catch (err) {
-    output.value = `${t('common.error')}：${err}`
+    // A cancelled checkout leaves a partial directory behind; report it as a
+    // cancellation instead of an SVN failure so the message stays actionable.
+    if (cancelled.value) {
+      state.value = 'cancelled'
+      checkoutStore.markCancelled()
+      failureText.value = t('checkout.cancelled')
+    } else {
+      state.value = 'failed'
+      checkoutStore.markFailed()
+      failureText.value = `${t('common.error')}：${errorMessage(err)}`
+    }
   } finally {
     loading.value = false
+    cancelled.value = false
+    stopElapsedTimer()
+    stopListening()
   }
+}
+
+/**
+ * The server could not serve part of the repository (a damaged revision file).
+ * Fetch everything else so the user can keep working, and list what is missing.
+ */
+const doSalvage = async () => {
+  if (!form.url || !form.path) return
+  cancelled.value = false
+  failureText.value = ''
+  salvageFailed.value = []
+  missingFiles.value = []
+  Object.assign(progress, createProgressState())
+  state.value = 'running'
+  checkoutStore.begin(form.url, form.path, form.revision)
+  loading.value = true
+  startElapsedTimer()
+  stopListening()
+  unlisten = await listen<{ kind: CheckoutLineKind; line: string }>('checkout-progress', event => {
+    pushCheckoutLine(progress, event.payload.kind, event.payload.line)
+    void scrollLogToBottom()
+  })
+
+  try {
+    const report = await svnCheckoutSalvage(form.url, form.path)
+    salvageFailed.value = report.failed
+    missingFiles.value = report.missingFiles ?? []
+    state.value = 'success'
+    checkoutStore.complete()
+    workspaceStore.setCurrentPath(form.path)
+    await refreshStatusAfterMutation()
+  } catch (err) {
+    if (cancelled.value) {
+      state.value = 'cancelled'
+      checkoutStore.markCancelled()
+      failureText.value = t('checkout.cancelled')
+    } else {
+      state.value = 'failed'
+      checkoutStore.markFailed()
+      failureText.value = `${t('common.error')}：${errorMessage(err)}`
+    }
+  } finally {
+    loading.value = false
+    cancelled.value = false
+    stopElapsedTimer()
+    stopListening()
+  }
+}
+
+/** Clears a lock left behind by the interrupted checkout. */
+const doCleanup = async () => {
+  const path = form.path
+  if (!path || cleaning.value) return
+  cleaning.value = true
+  try {
+    await svnCleanup(path)
+    ElMessage.success(`${t('common.cleanup')} ${t('common.success')}`)
+  } catch (err) {
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
+  } finally {
+    cleaning.value = false
+  }
+}
+
+const cancelCheckout = async () => {
+  if (!form.path) return
+  cancelled.value = true
+  await svnCancel(form.path).catch(() => false)
 }
 
 const resetForm = () => {
   form.url = ''
   form.path = ''
   form.revision = undefined
-  output.value = ''
+  state.value = 'idle'
+  failureText.value = ''
+  Object.assign(progress, createProgressState())
 }
+
+onUnmounted(() => {
+  stopElapsedTimer()
+  stopListening()
+})
 </script>
 
 <style scoped>
@@ -252,6 +476,81 @@ const resetForm = () => {
   font-weight: 600;
   font-size: var(--app-font-size-label);
   color: var(--el-text-color-regular);
+}
+
+.progress-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding: 6px 12px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--app-font-size-sm);
+}
+
+.progress-failure {
+  margin: 0 12px 8px;
+  padding: 8px 10px;
+  border: 1px solid var(--md-sys-color-error);
+  border-radius: var(--app-radius-sm);
+  background: var(--app-color-status-error-bg);
+  color: var(--app-color-status-error-text);
+  font-size: var(--app-font-size-sm);
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.progress-log {
+  max-height: 280px;
+  min-height: 120px;
+  margin: 0 12px;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--md-sys-color-outline-variant);
+  border-radius: var(--app-radius-sm);
+  background: var(--md-sys-color-surface-container-lowest);
+  font-family: var(--app-font-family-mono);
+  font-size: var(--app-font-size-sm);
+  line-height: 1.5;
+}
+
+.progress-line {
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+.progress-line.is-err {
+  color: var(--app-color-status-error-text);
+}
+
+.progress-line.is-status {
+  color: var(--md-sys-color-primary);
+}
+
+.progress-empty {
+  margin: 0;
+  color: var(--md-sys-color-on-surface-variant);
+}
+
+.progress-actions {
+  display: flex;
+  gap: 8px;
+}
+
+.salvage-list {
+  display: block;
+  margin-top: 4px;
+  font-family: var(--app-font-family-mono);
+  word-break: break-all;
+}
+
+.progress-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 12px 2px;
+  color: var(--md-sys-color-on-surface-variant);
+  font-size: var(--app-font-size-sm);
 }
 
 .output-textarea {

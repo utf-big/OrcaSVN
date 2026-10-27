@@ -24,6 +24,7 @@ function harness() {
   }
   let filter = async list => list
   const mocks = {
+    '@/utils/errors': { errorMessage: error => (error && typeof error === 'object' && 'message' in error ? error.message : String(error)) },
     '@/stores/workspace': { useWorkspaceStore: () => store },
     '@/api/svn': {
       svnStatus: (path, force = false) => { const request = { path, force, ...deferred() }; requests.push(request); return request.promise },

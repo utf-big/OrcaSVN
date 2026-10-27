@@ -21,7 +21,7 @@ Current stable version: **0.6.3**. See the [release notes](docs/releases/v0.6.3.
 
 > OrcaSVN uses the locally installed `svn` command-line tool; it does not implement the SVN protocol itself.
 
-Switch, Merge, Resolve, and scheduling deletion of versioned files currently require another SVN client or the command line. Refresh OrcaSVN afterward. The workspace Delete button removes unversioned local files.
+Conflicts can be marked resolved in the workspace (keep the current content, take the local version, or take the repository version), a versioned file that is missing locally can be scheduled for deletion, and both repository switching and merging are available from the workspace sidebar. The workspace Delete button removes unversioned local files.
 
 ## Installation
 
@@ -82,6 +82,8 @@ src/                    Vue 3 frontend
 src-tauri/src/
   main.rs               Tauri command boundary
   svn/executor.rs       SVN process execution and timeouts
+  svn/gate.rs           Per-working-copy write serialization and cancel
+  svn/status_cache.rs   Status cache and scoped refresh
   svn/operations.rs     SVN argument construction
   svn/parser.rs         XML and text result parsing
 .github/workflows/      Release workflows
@@ -92,6 +94,7 @@ src-tauri/src/
 - **Predictable:** UI actions map to explicit SVN commands whenever possible.
 - **Review before change:** Status and diffs are shown before committing or reverting changes.
 - **Safe argument boundaries:** File targets are separated from command options with `--`.
+- **No concurrent writes:** writes to one working copy run one at a time, and a background status query never overlaps a commit or update.
 - **Clear feedback:** Errors retain the original SVN context to make diagnosis easier.
 
 ## License

@@ -103,6 +103,7 @@ import { useWorkspaceStore } from '@/stores/workspace'
 import { useI18n } from 'vue-i18n'
 import { toWorkspaceRelativePath } from '@/utils/workspacePath'
 import type { BlameLine } from '@/types'
+import { errorMessage } from '@/utils/errors'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -166,7 +167,7 @@ const loadBlame = async () => {
     blameLines.value = await svnBlame(workspaceStore.currentPath, file)
   } catch (err) {
     blameLines.value = []
-    ElMessage.error(`${t('common.error')}：${err}`)
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
   } finally {
     loading.value = false
   }

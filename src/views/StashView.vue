@@ -184,10 +184,16 @@ import { useWorkspace } from '@/composables/useWorkspace'
 import { buildPatch, createStashId, parseUnifiedDiff } from '@/utils/stash'
 import type { StashEntry, StashFile, StashUnversionedEntry } from '@/types'
 import { Archive, CopyDocument, Delete, Document, Download, List, MoreFilled, Plus, Refresh } from '@/components/icons/materialIcons'
+import { errorMessage } from '@/utils/errors'
 
 const { t, locale } = useI18n()
 const workspaceStore = useWorkspaceStore()
 const stashStore = useStashStore()
+watch(
+  () => workspaceStore.currentPath,
+  path => { void stashStore.ensureLoaded(path) },
+  { immediate: true },
+)
 const { refreshStatus, refreshStatusAfterMutation } = useWorkspace()
 
 const createDialogVisible = ref(false)
@@ -249,7 +255,7 @@ const openCreateDialog = async () => {
     selectedUnversioned.value = unversionedFiles.value.map(file => file.path)
   } catch (err) {
     diffFiles.value = []
-    ElMessage.error(`${t('common.error')}：${err}`)
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
   } finally {
     loadingDiffs.value = false
   }
@@ -302,7 +308,7 @@ const createStash = async () => {
       ? await readUnversionedFiles(workspacePath, selectedUnversioned.value)
       : []
   } catch (err) {
-    ElMessage.error(`${t('stash.createFailed')}：${err}`)
+    ElMessage.error(`${t('stash.createFailed')}：${errorMessage(err)}`)
     return
   }
 
@@ -323,9 +329,9 @@ const createStash = async () => {
   creating.value = true
   try {
     // Save the only durable copy before removing changes from the working copy.
-    stashStore.addEntry(entry)
+    await stashStore.addEntry(entry)
   } catch (err) {
-    ElMessage.error(`${t('stash.createFailed')}：${err}`)
+    ElMessage.error(`${t('stash.createFailed')}：${errorMessage(err)}`)
     creating.value = false
     return
   }
@@ -340,7 +346,7 @@ const createStash = async () => {
     // The patch is already stored, so retain it and keep the source changes.
     createDialogVisible.value = false
     await refreshStatusAfterMutation()
-    ElMessage.warning(`${t('stash.savedButNotHidden')}：${err}`)
+    ElMessage.warning(`${t('stash.savedButNotHidden')}：${errorMessage(err)}`)
   } finally {
     creating.value = false
   }
@@ -355,11 +361,19 @@ const applyEntry = async (entry: StashEntry, removeAfterApply: boolean) => {
     if (entry.unversionedFiles?.length) await restoreUnversionedFiles(workspacePath, entry.unversionedFiles, true)
     if (entry.patch) await svnApplyPatch(workspacePath, entry.patch)
     if (entry.unversionedFiles?.length) await restoreUnversionedFiles(workspacePath, entry.unversionedFiles)
-    if (removeAfterApply) stashStore.removeEntry(entry.id)
+    if (removeAfterApply) {
+      // The content is already restored; a failed record cleanup must not be
+      // reported as a failed apply.
+      try {
+        await stashStore.removeEntry(entry.id)
+      } catch (err) {
+        ElMessage.warning(`${t('stash.deleteFailed')}：${errorMessage(err)}`)
+      }
+    }
     await refreshStatusAfterMutation()
     ElMessage.success(removeAfterApply ? t('stash.popped') : t('stash.applied'))
   } catch (err) {
-    ElMessage.error(`${t('stash.applyFailed')}：${err}`)
+    ElMessage.error(`${t('stash.applyFailed')}：${errorMessage(err)}`)
   } finally {
     applyingEntryId.value = null
     applyingMode.value = null
@@ -378,7 +392,7 @@ const copyEntry = async (entry: StashEntry) => {
     await navigator.clipboard.writeText(entry.patch)
     ElMessage.success(t('stash.copied'))
   } catch (err) {
-    ElMessage.error(`${t('stash.copyFailed')}：${err}`)
+    ElMessage.error(`${t('stash.copyFailed')}：${errorMessage(err)}`)
   }
 }
 
@@ -392,7 +406,7 @@ const exportEntry = async (entry: StashEntry) => {
     await writeTextFile(path, entry.patch)
     ElMessage.success(t('stash.exported'))
   } catch (err) {
-    ElMessage.error(`${t('stash.exportFailed')}：${err}`)
+    ElMessage.error(`${t('stash.exportFailed')}：${errorMessage(err)}`)
   }
 }
 
@@ -403,10 +417,10 @@ const deleteEntry = async (entry: StashEntry) => {
       confirmButtonText: t('common.delete'),
       cancelButtonText: t('common.cancel'),
     })
-    stashStore.removeEntry(entry.id)
+    await stashStore.removeEntry(entry.id)
   } catch (err) {
     if (err === 'cancel' || err === 'close') return
-    ElMessage.error(`${t('stash.deleteFailed')}：${err}`)
+    ElMessage.error(`${t('stash.deleteFailed')}：${errorMessage(err)}`)
   }
 }
 

@@ -1,4 +1,4 @@
-use crate::{SvnInfo, SvnLogEntry, SvnLogPath, SvnStatus};
+use crate::models::{SvnInfo, SvnLogEntry, SvnLogPath, SvnStatus};
 use quick_xml::events::Event;
 use quick_xml::Reader;
 

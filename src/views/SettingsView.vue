@@ -109,25 +109,17 @@
             <div class="detail-item">
               <span class="detail-label">{{ $t('common.version') }}：</span>
               <el-tag size="small" type="primary">{{ appVersion }}</el-tag>
-              <el-button
-                v-if="updateState === 'available'"
-                size="small"
-                type="primary"
-                link
-                @click="openReleasePage"
-              >
-                {{ $t('appUpdate.available', { version: latestVersion }) }}
-              </el-button>
-              <span v-else-if="updateState !== 'idle'" class="update-status">
-                {{ $t(`appUpdate.${updateState}`) }}
-              </span>
-              <el-button
-                v-if="updateState !== 'checking'"
-                size="small"
-                link
-                @click="checkForUpdates"
-              >
-                {{ $t('appUpdate.check') }}
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">{{ $t('settings.autoUpdate') }}：</span>
+              <el-switch :model-value="false" disabled size="small" />
+              <span class="update-status">{{ $t('settings.autoUpdateOff') }}</span>
+            </div>
+            <p class="fork-notice">{{ $t('settings.forkNotice') }}</p>
+            <div class="detail-item">
+              <span class="detail-label">{{ $t('settings.forkUpstream') }}：</span>
+              <el-button size="small" link type="primary" :title="upstreamUrl" @click="openUpstream">
+                {{ upstreamUrl }}
               </el-button>
             </div>
           </div>
@@ -147,12 +139,18 @@ import { useSettings } from '@/composables/useSettings'
 import { applyTheme } from '@/composables/useTheme'
 import { useWorkspace } from '@/composables/useWorkspace'
 import { useUpdateCheck } from '@/composables/useUpdateCheck'
+import { open } from '@tauri-apps/plugin-shell'
+import { errorMessage } from '@/utils/errors'
 
 const { t } = useI18n()
 const { setLocale } = useLocale()
 const { settings } = useSettings()
 const { refreshStatusAfterMutation } = useWorkspace()
-const { currentVersion: appVersion, state: updateState, latestVersion, checkForUpdates, openReleasePage } = useUpdateCheck()
+const { currentVersion: appVersion } = useUpdateCheck()
+const upstreamUrl = 'https://github.com/wustites/OrcaSVN'
+const openUpstream = () => {
+  void open(upstreamUrl)
+}
 
 const languages = computed(() => [
   { label: t('language.zhCN'), value: 'zh-CN' },
@@ -176,7 +174,7 @@ const handleSvnPathChange = async (value: string) => {
     const version = await configureSvnExecutable(value)
     ElMessage.success(t('settings.svnPathApplied', { version }))
   } catch (err) {
-    ElMessage.error(t('settings.svnPathInvalid', { error: String(err) }))
+    ElMessage.error(t('settings.svnPathInvalid', { error: errorMessage(err) }))
   }
 }
 
@@ -335,6 +333,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   gap: var(--app-spacing-sm);
+}
+
+.fork-notice {
+  margin: 0;
+  color: var(--el-text-color-regular);
+  font-size: var(--app-font-size-sm);
+  line-height: var(--app-line-height-relaxed);
 }
 
 .update-status {

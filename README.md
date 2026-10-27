@@ -19,7 +19,7 @@ OrcaSVN 是一个基于 Tauri、Rust 和 Vue 3 的跨平台 SVN 桌面客户端�
 
 > OrcaSVN 调用本机的 `svn` 命令行工具，不会自行实现 SVN 协议。
 
-Switch、Merge、Resolve 和受控文件安排删除目前需使用其他 SVN 客户端或命令行完成，再回到 OrcaSVN 刷新。工作区中的“删除”按钮用于删除未跟踪的本地文件。
+冲突可以在工作区直接标记为已解决（保留当前内容、采用本地版本或采用仓库版本），缺失的受控文件可以安排版本控制删除，仓库地址切换（Switch）和合并（Merge）也在工作区侧栏完成。工作区中的“删除”按钮用于删除未跟踪的本地文件。
 
 ## 安装
 
@@ -90,6 +90,8 @@ src/                    Vue 3 前端
 src-tauri/src/
   main.rs               Tauri 命令边界
   svn/executor.rs       SVN 进程执行与超时
+  svn/gate.rs           工作副本写操作串行与取消
+  svn/status_cache.rs   状态缓存与定向刷新
   svn/operations.rs     SVN 参数构造
   svn/parser.rs         XML/文本结果解析
 .github/workflows/      发布流水线
@@ -100,6 +102,7 @@ src-tauri/src/
 - **可预测**：界面操作尽量对应明确的 SVN 命令。
 - **先审阅后变更**：默认先展示状态和差异，再执行提交或还原。
 - **安全参数边界**：文件目标使用 `--` 与命令选项隔离。
+- **不并发写**：同一工作副本的写操作串行执行，后台状态查询不会与提交或更新重叠。
 - **清晰反馈**：错误保留 SVN 原始上下文，便于诊断。
 
 界面颜色、文字、间距与组件尺寸见 [视觉规范](docs/visual-design-system.md)。

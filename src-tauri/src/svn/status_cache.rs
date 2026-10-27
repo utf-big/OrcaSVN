@@ -1,7 +1,10 @@
 use super::executor::SvnError;
-use super::operations::{status, status_for_paths};
+use super::gate;
+use super::operations::{
+    classify_name_duplicates, collapse_name_mismatches, status, status_for_paths,
+};
 use super::status_snapshot::{self, Inventory};
-use crate::SvnStatus;
+use crate::models::SvnStatus;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
@@ -62,7 +65,12 @@ fn get_workspace(root: &Path) -> Result<Workspace, SvnError> {
     Ok(workspace)
 }
 
-fn merge_status(previous: &[SvnStatus], fresh: Vec<SvnStatus>, paths: &[String]) -> Vec<SvnStatus> {
+fn merge_status(
+    root: &Path,
+    previous: &[SvnStatus],
+    fresh: Vec<SvnStatus>,
+    paths: &[String],
+) -> Vec<SvnStatus> {
     let collapsed: Vec<_> = fresh
         .iter()
         .filter(|entry| matches!(entry.status_code.as_str(), "missing" | "unversioned"))
@@ -84,7 +92,9 @@ fn merge_status(previous: &[SvnStatus], fresh: Vec<SvnStatus>, paths: &[String])
     entries.extend(fresh);
     entries.sort_by(|a, b| a.path.cmp(&b.path));
     entries.dedup_by(|a, b| a.path == b.path);
-    entries
+    // The cached list may still hold the NFD twin from an earlier refresh; the
+    // collapse pairs it with the repository spelling once more.
+    collapse_name_mismatches(root, entries)
 }
 
 async fn persist_status(
@@ -121,6 +131,22 @@ pub async fn cached_status(
         .map_err(|error| SvnError::CommandFailed(format!("无法访问工作副本：{error}")))?;
     let workspace = get_workspace(&root)?;
     let mut workspace = workspace.lock().await;
+    // A mutating command holds the exclusive gate for this working copy. Reuse
+    // the entries we already have instead of racing it, unless nothing is
+    // cached yet: then correctness wins and we wait for the mutation to end.
+    let _gate_reader = match gate::try_status_reader(&root) {
+        Some(guard) => guard,
+        None => match workspace.entries.clone() {
+            Some(entries) => {
+                tracing::debug!(
+                    workspace = %root.display(),
+                    "mutation in progress; reusing cached status"
+                );
+                return Ok(entries);
+            }
+            None => gate::status_reader(&root).await,
+        },
+    };
     let scan_root = root.clone();
     let restore_dir = if workspace.entries.is_none() && !force {
         cache_dir.clone()
@@ -202,6 +228,7 @@ pub async fn cached_status(
         tracing::debug!(workspace = %cwd, ?paths, "filesystem changes scoped SVN status");
         match status_for_paths(&cwd, &paths).await {
             Ok(fresh) => Ok(merge_status(
+                &root,
                 workspace.entries.as_deref().unwrap_or_default(),
                 fresh,
                 &paths,
@@ -214,7 +241,18 @@ pub async fn cached_status(
         }
     };
     match result {
-        Ok(entries) => {
+        Ok(mut entries) => {
+            // A repository that versions two spellings of one name cannot be
+            // satisfied on macOS; label those entries so the interface offers a
+            // deletion instead of a rename.
+            if entries
+                .iter()
+                .any(|entry| entry.status_code == "name_mismatch")
+            {
+                if let Err(error) = classify_name_duplicates(&root, &mut entries).await {
+                    tracing::debug!(%error, "could not classify name mismatches");
+                }
+            }
             workspace.entries = Some(entries.clone());
             // Keep the pre-query inventory: any edit during SVN execution will
             // differ on the next poll and be checked again.
@@ -255,6 +293,23 @@ mod tests {
         super::cached_status(path, force, None).await
     }
 
+    /// `WORKSPACES` is process-wide and keeps only three entries, so tests that
+    /// drive the real cache must not interleave. Run in parallel they evict each
+    /// other's entry, which loses the recorded query mode and drops the pending
+    /// snapshot write; serializing them together with a fresh registry keeps
+    /// every case independent regardless of the test runner's thread count.
+    fn cache_test_lock() -> std::sync::MutexGuard<'static, ()> {
+        static LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let guard = LOCK.lock().unwrap_or_else(|error| error.into_inner());
+        if let Some(workspaces) = WORKSPACES.get() {
+            workspaces
+                .lock()
+                .unwrap_or_else(|error| error.into_inner())
+                .clear();
+        }
+        guard
+    }
+
     fn entry(path: &str, code: &str) -> SvnStatus {
         SvnStatus {
             path: path.into(),
@@ -275,6 +330,7 @@ mod tests {
             entry("src2/a", "modified"),
         ];
         let merged = merge_status(
+            Path::new("/nonexistent-workspace"),
             &previous,
             vec![entry("src/new", "unversioned")],
             &["src/a".into(), "src/new".into()],
@@ -287,6 +343,7 @@ mod tests {
             ["src/new", "src/sub/keep", "src2/a"]
         );
         let merged = merge_status(
+            Path::new("/nonexistent-workspace"),
             &previous,
             vec![entry("src/sub", "missing")],
             &["src/a".into(), "src/sub".into()],
@@ -307,6 +364,7 @@ mod tests {
 
     #[test]
     fn polling_reuses_unchanged_status_and_forces_metadata_and_periodic_checks() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             return;
         };
@@ -352,7 +410,56 @@ mod tests {
     }
 
     #[test]
+    fn a_mutation_in_flight_lets_status_reuse_entries_instead_of_racing_it() {
+        let _cache_guard = cache_test_lock();
+        let Some(fixture) = Fixture::new() else {
+            return;
+        };
+        fixture.init();
+        let runtime = runtime();
+        runtime.block_on(async {
+            let path = fixture.wc.to_str().unwrap();
+            let initial = cached_status(path, false).await.unwrap();
+            assert!(initial.is_empty(), "a fresh fixture has no local changes");
+
+            // Edit on disk, then hold the exclusive gate the way a commit or
+            // update does. A status query must not start while it is held.
+            fs::write(fixture.wc.join("src/file@name.txt"), "changed\n").unwrap();
+            let started = Arc::new(tokio::sync::Notify::new());
+            let holder = {
+                let started = started.clone();
+                let wc = fixture.wc.clone();
+                tokio::spawn(async move {
+                    super::gate::exclusive(&wc, async {
+                        started.notify_one();
+                        tokio::time::sleep(Duration::from_millis(200)).await;
+                        Ok(())
+                    })
+                    .await
+                    .unwrap();
+                })
+            };
+            started.notified().await;
+
+            // The edit is invisible only because no SVN query ran.
+            let reused = cached_status(path, false).await.unwrap();
+            assert_eq!(statuses(&reused), statuses(&initial));
+            assert_eq!(statuses(&reused), statuses(&initial), "no rescan");
+
+            holder.await.unwrap();
+            let refreshed = cached_status(path, false).await.unwrap();
+            assert_eq!(
+                statuses(&refreshed),
+                statuses(&status(path).await.unwrap()),
+                "the deferred scan must report the edit once the gate is free"
+            );
+            assert!(!refreshed.is_empty());
+        });
+    }
+
+    #[test]
     fn disk_snapshot_reopens_and_checks_offline_changes() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             return;
         };
@@ -552,6 +659,7 @@ mod tests {
 
     #[test]
     fn subdirectory_cache_checks_ancestor_administration_in_memory_and_on_disk() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             return;
         };
@@ -587,6 +695,7 @@ mod tests {
 
     #[test]
     fn real_svn_scoped_status_preserves_ignore_rules_and_unversioned_directory_collapsing() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             return;
         };
@@ -608,6 +717,7 @@ mod tests {
             .unwrap();
             assert_eq!(
                 statuses(&merge_status(
+                    &fixture.wc,
                     &full,
                     fresh,
                     &[
@@ -622,6 +732,7 @@ mod tests {
 
     #[test]
     fn real_filesystem_changes_update_reverted_renamed_added_and_missing_files() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             return;
         };
@@ -664,6 +775,7 @@ mod tests {
     #[test]
     #[ignore = "creates a real 20,000-file working copy for performance measurement"]
     fn benchmark_twenty_thousand_files_forty_changes() {
+        let _cache_guard = cache_test_lock();
         let Some(fixture) = Fixture::new() else {
             panic!("svnadmin required for benchmark");
         };
@@ -732,6 +844,7 @@ mod tests {
     #[test]
     #[ignore = "read-only startup benchmark; set ORCASVN_BENCH_WORKSPACE"]
     fn benchmark_workspace_startup() {
+        let _cache_guard = cache_test_lock();
         let path = std::env::var("ORCASVN_BENCH_WORKSPACE")
             .expect("set ORCASVN_BENCH_WORKSPACE to a real SVN working copy");
         let root = fs::canonicalize(&path).unwrap();

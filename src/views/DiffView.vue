@@ -170,6 +170,7 @@ import { toWorkspaceRelativePath } from '@/utils/workspacePath'
 import DiffViewer from '@/components/DiffViewer.vue'
 import VirtualViewport from '@/components/VirtualViewport.vue'
 import type { DiffResult, SvnStatus } from '@/types'
+import { errorMessage } from '@/utils/errors'
 
 const { t } = useI18n()
 const route = useRoute()
@@ -270,7 +271,7 @@ const loadDiff = async () => {
   } catch (err) {
     if (generation === requestGeneration) {
       diffResult.value = null
-      ElMessage.error(`${t('common.error')}：${err}`)
+      ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
     }
   } finally {
     if (generation === requestGeneration) loading.value = false

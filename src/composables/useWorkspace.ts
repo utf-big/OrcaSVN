@@ -7,6 +7,7 @@ import { filterByGitignoreAsync } from '@/utils/gitignoreWorker'
 import { cacheSvnInfoMetadata, getCachedSvnInfoMetadata, type SvnInfoMetadata } from '@/utils/svnInfoCache'
 import { cacheWorkspaceSnapshot, getWorkspaceSnapshot, invalidateWorkspaceSnapshot } from '@/utils/workspaceSnapshot'
 import type { SvnInfo } from '@/types'
+import { errorMessage } from '@/utils/errors'
 
 let workspaceRequestGeneration = 0
 let pendingRequest: { path: string; generation: number; force: boolean; promise: Promise<boolean> } | null = null
@@ -158,7 +159,7 @@ export function useWorkspace() {
         workspaceStore.setStatusList(snapshot.statusList)
         workspaceStore.setSvnInfo(snapshot.svnInfo)
         workspaceStore.setStatusIsStale(true)
-        workspaceStore.setError(String(err))
+        workspaceStore.setError(errorMessage(err))
         return false
       }
       if (previousPath) workspaceStore.setCurrentPath(previousPath, false)
@@ -166,7 +167,7 @@ export function useWorkspace() {
       workspaceStore.setStatusList(previousStatusList)
       workspaceStore.setSvnInfo(previousSvnInfo)
       workspaceStore.setStatusIsStale(previousStatusIsStale)
-      workspaceStore.setError(String(err))
+      workspaceStore.setError(errorMessage(err))
       return false
     } finally {
       if (isCurrentGeneration()) workspaceStore.setLoading(false)
@@ -223,7 +224,7 @@ export function useWorkspace() {
       return true
     } catch (err) {
       if (!isCurrent()) return false
-      workspaceStore.setError(String(err))
+      workspaceStore.setError(errorMessage(err))
       return false
     } finally {
       if (isCurrent()) workspaceStore.setLoading(false)

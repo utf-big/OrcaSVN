@@ -6,7 +6,7 @@
   "permissions": [
     "core:default",
     "core:webview:deny-internal-toggle-devtools",
-    "shell:allow-execute",
+    "core:event:default",
     "shell:default",
     "dialog:default",
     "dialog:allow-open",
@@ -27,20 +27,5 @@
     "fs:allow-app-read-recursive",
     "fs:allow-app-write-recursive"
   ],
-  "platforms": ["windows", "macOS", "linux"],
-  "webview": {
-    "launch": {
-      "allowlist": {
-        "shell": {
-          "execute": [
-            {
-              "name": "svn",
-              "cmd": "svn",
-              "args": true
-            }
-          ]
-        }
-      }
-    }
-  }
+  "platforms": ["windows", "macOS", "linux"]
 }

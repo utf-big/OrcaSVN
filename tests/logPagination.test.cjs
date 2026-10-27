@@ -9,6 +9,7 @@ function harness(fetch) {
   const calls = []
   const store = { currentPath: '/wc', setError(error) { this.error = error } }
   const mocks = {
+    '@/utils/errors': { errorMessage: error => (error && typeof error === 'object' && 'message' in error ? error.message : String(error)) },
     vue: { ...vue, watch() {}, onActivated() {}, onUnmounted() {} },
     '@/stores/workspace': { useWorkspaceStore: () => store },
     '@/api/svn': { svnLog: async (...args) => { calls.push(args); return fetch(...args) } },

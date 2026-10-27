@@ -189,6 +189,21 @@
           <span class="route-repository">{{ repositoryName }}</span>
         </header>
         <div class="route-content">
+          <!-- Failures are recorded in the workspace store from several views;
+               without this banner they were never shown to the user. -->
+          <div v-if="workspaceStore.error" class="app-error-banner" role="alert">
+            <el-icon class="app-error-icon"><InfoFilled /></el-icon>
+            <span class="app-error-text">{{ workspaceStore.error }}</span>
+            <button
+              type="button"
+              class="app-error-dismiss"
+              :aria-label="$t('common.close')"
+              :title="$t('common.close')"
+              @click="workspaceStore.setError(null)"
+            >
+              <el-icon><Close /></el-icon>
+            </button>
+          </div>
           <router-view v-slot="{ Component, route }">
             <keep-alive :include="cachedViews">
               <component :is="Component" :key="route.path" />
@@ -221,13 +236,14 @@
 </template>
 
 <script setup lang="ts">
-import { computed, onMounted, onUnmounted, ref } from 'vue'
+import { computed, onMounted, onUnmounted, ref, watch } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
 import { launchWorkspacePath, openWorkspaceTarget, type OpenWorkspaceTarget } from '@/api/svn'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useStashStore } from '@/stores/stash'
+import { useCheckoutStore } from '@/stores/checkout'
 import { useWorkspace } from '@/composables/useWorkspace'
 import { useUpdateCheck } from '@/composables/useUpdateCheck'
 import LanguageSwitcher from '@/components/LanguageSwitcher.vue'
@@ -237,12 +253,14 @@ import {
   FolderOpened as FolderOpenedIcon,
   Terminal,
 } from '@/components/icons/materialIcons'
+import { errorMessage } from '@/utils/errors'
 
 const router = useRouter()
 const route = useRoute()
 const { t } = useI18n()
 const workspaceStore = useWorkspaceStore()
 const stashStore = useStashStore()
+const checkoutStore = useCheckoutStore()
 const { loadWorkspace, openWorkspace, refreshStatus, refreshStatusIfStale, restoreLastWorkspace } = useWorkspace()
 const {
   currentVersion: appVersion,
@@ -262,6 +280,14 @@ const openTargetIcons = {
 } satisfies Record<OpenWorkspaceTarget, typeof FolderOpenedIcon>
 const selectedOpenTargetIcon = computed(() => openTargetIcons[selectedOpenTarget.value])
 const stashCount = computed(() => stashStore.currentEntries(workspaceStore.currentPath).length)
+
+// Stash records live on disk now; load the current workspace's records so the
+// sidebar count reflects them without opening the stash page.
+watch(
+  () => workspaceStore.currentPath,
+  path => { void stashStore.ensureLoaded(path) },
+  { immediate: true },
+)
 
 const repositoryName = computed(() => {
   const path = workspaceStore.currentPath
@@ -299,12 +325,15 @@ const openCurrentWorkspaceIn = async (target: OpenWorkspaceTarget) => {
     await openWorkspaceTarget(workspaceStore.currentPath, target)
     selectedOpenTarget.value = target
   } catch (err) {
-    ElMessage.error(`${t('common.error')}：${err}`)
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
   }
 }
 
 const refreshStatusSilently = async () => {
   if (!workspaceStore.currentPath || workspaceStore.isLoading) return
+  // A checkout is writing the working copy; scanning it now would race SVN's
+  // own locks and only produce partial results.
+  if (checkoutStore.running(workspaceStore.currentPath)) return
   await refreshStatusIfStale(statusRefreshIntervalMs)
 }
 
@@ -890,6 +919,51 @@ onUnmounted(() => {
 .route-repository {
   color: var(--md-sys-color-on-surface-variant);
   font-size: var(--app-font-size-sm);
+}
+
+.app-error-banner {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  padding: 10px 16px;
+  background: var(--app-color-status-error-bg);
+  border-bottom: 1px solid var(--md-sys-color-error);
+  color: var(--app-color-status-error-text);
+  font-size: var(--app-font-size-sm);
+}
+
+.app-error-icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.app-error-text {
+  flex: 1;
+  min-width: 0;
+  white-space: pre-line;
+  word-break: break-word;
+}
+
+.app-error-dismiss {
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: var(--app-radius-sm);
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+
+.app-error-dismiss:hover {
+  background: var(--md-sys-color-surface-container-high);
 }
 
 .route-content {

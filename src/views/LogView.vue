@@ -241,6 +241,7 @@ import type { SvnLogEntry, SvnLogPath } from '@/types'
 import { useI18n } from 'vue-i18n'
 import { useWorkspace } from '@/composables/useWorkspace'
 import { useRouter } from 'vue-router'
+import { errorMessage } from '@/utils/errors'
 
 const { t, locale } = useI18n()
 const router = useRouter()
@@ -461,7 +462,7 @@ const fetchLogPage = async (index: number, refreshCache = false) => {
     await nextTick()
     if (logScroller.value) logScroller.value.scrollTop = 0
   } catch (err) {
-    if (generation === requestGeneration) workspaceStore.setError(String(err))
+    if (generation === requestGeneration) workspaceStore.setError(errorMessage(err))
   } finally {
     if (generation === requestGeneration) loading.value = false
   }

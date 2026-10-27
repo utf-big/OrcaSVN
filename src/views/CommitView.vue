@@ -219,6 +219,7 @@ import { useI18n } from 'vue-i18n'
 import { getStatusClass, getStatusLabelKey } from '@/composables/useSvnStatus'
 import { useWorkspace } from '@/composables/useWorkspace'
 import { buildChangeTree, isWithinDirectory, type ChangeNode } from '@/utils/changeTree'
+import { errorMessage } from '@/utils/errors'
 
 const { t } = useI18n()
 const router = useRouter()
@@ -389,7 +390,7 @@ const doCommit = async () => {
       router.push({ name: 'workspace' })
     }, 1500)
   } catch (err) {
-    output.value = `${t('common.error')}：${err}`
+    output.value = `${t('common.error')}：${errorMessage(err)}`
   } finally {
     loading.value = false
   }

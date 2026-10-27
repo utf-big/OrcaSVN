@@ -17,3 +17,22 @@ test('rejects mismatched or missing versions before creating a stable release', 
     assert.throws(() => validateRelease('v0.6.3', { cargo: actual }), /cargo: expected/)
   }
 })
+
+test('accepts a build number written as build metadata or as a fourth component', () => {
+  const versions = {
+    'package.json': '0.6.4+20261026',
+    'src-tauri/tauri.conf.json': '0.6.4+20261026',
+    'src-tauri/Cargo.toml': '0.6.4+20261026',
+  }
+  assert.equal(validateRelease('v0.6.4+20261026', versions), '0.6.4+20261026')
+  assert.equal(validateRelease('v0.6.4.20261026', versions), '0.6.4.20261026')
+  // The plain three-component tag still works for releases without a build number.
+  assert.equal(validateRelease('v0.6.3', { 'package.json': '0.6.3' }), '0.6.3')
+})
+
+test('rejects a build tag when a file still carries another build number', () => {
+  assert.throws(
+    () => validateRelease('v0.6.4+20261026', { 'src-tauri/Cargo.toml': '0.6.4+20261001' }),
+    /src-tauri\/Cargo.toml: expected/
+  )
+})

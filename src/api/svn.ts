@@ -1,5 +1,5 @@
 import { invoke } from '@tauri-apps/api/core'
-import type { CommandResult, SvnStatus, SvnLogEntry, SvnInfo, SvnAuthUser, DiffResult, BlameLine, StashUnversionedEntry } from '@/types'
+import type { CommandResult, SvnStatus, SvnLogEntry, SvnInfo, SvnAuthUser, DiffResult, BlameLine, StashEntry, StashUnversionedEntry } from '@/types'
 
 export async function configureSvnExecutable(executable?: string): Promise<string> {
   return invoke<string>('configure_svn_executable', {
@@ -7,16 +7,66 @@ export async function configureSvnExecutable(executable?: string): Promise<strin
   })
 }
 
-export async function svnCheckout(
+export interface CheckoutReport {
+  output: string
+  attempts: number
+  revision: number | null
+  salvaged: boolean
+  failed: string[]
+  missingFiles: string[]
+}
+
+export interface SalvageReport {
+  failed: string[]
+  missingFiles: string[]
+  output: string
+}
+
+/**
+ * Continues a cancelled checkout of an existing working copy. Uses an update at
+ * full depth, so a partial copy (even one left at depth immediates) is completed.
+ */
+export async function svnResumeCheckout(path: string): Promise<CheckoutReport> {
+  return invoke<CheckoutReport>('svn_resume_checkout', { path })
+}
+
+/**
+ * Fetches everything the server can still serve after a storage fault, skipping
+ * the unreadable subtrees and reporting them.
+ */
+export async function svnCheckoutSalvage(url: string, path: string): Promise<SalvageReport> {
+  return invoke<SalvageReport>('svn_checkout_salvage', { url, path })
+}
+
+/**
+ * Streams progress through the `checkout-progress` event while the checkout
+ * runs, and resolves with the summary once it finishes.
+ */
+export async function svnCheckoutStream(
   url: string,
   path: string,
   revision?: number
-): Promise<CommandResult> {
-  return invoke<CommandResult>('svn_checkout', { url, path, revision })
+): Promise<CheckoutReport> {
+  return invoke<CheckoutReport>('svn_checkout_stream', { url, path, revision })
 }
 
 export async function svnUpdate(path: string, revision?: number): Promise<CommandResult> {
   return invoke<CommandResult>('svn_update', { path, revision })
+}
+
+/** Renames files whose on-disk NFC/NFD form differs from the repository spelling. */
+export async function svnRepairNames(path: string, files: string[]): Promise<number> {
+  return invoke<number>('svn_repair_names', { path, files })
+}
+
+/** Deletes a repository-side duplicate spelling, keeping the local file. */
+export async function svnDeleteDuplicates(path: string, files: string[]): Promise<CommandResult> {
+  return invoke<CommandResult>('svn_delete_duplicates', { path, files })
+}
+
+/** Aborts the running checkout or update for this working copy. */
+export async function svnCancel(path: string): Promise<boolean> {
+  return invoke<boolean>('svn_cancel', { path })
 }
 
 export async function svnCommit(
@@ -158,4 +208,21 @@ export async function revealWorkspaceFile(path: string, file: string): Promise<v
 
 export async function launchWorkspacePath(): Promise<string | null> {
   return invoke<string | null>('launch_workspace_path')
+}
+
+export async function saveStash(stash: StashEntry): Promise<void> {
+  return invoke<void>('save_stash', { stash })
+}
+
+export async function listStashes(workspacePath: string): Promise<StashEntry[]> {
+  return invoke<StashEntry[]>('list_stashes', { workspacePath })
+}
+
+export async function deleteStash(workspacePath: string, id: string): Promise<void> {
+  return invoke<void>('delete_stash', { workspacePath, id })
+}
+
+/** Moves stash records written by older versions out of local storage. */
+export async function importLegacyStashes(workspacePath: string, stashes: StashEntry[]): Promise<number> {
+  return invoke<number>('import_legacy_stashes', { workspacePath, stashes })
 }
