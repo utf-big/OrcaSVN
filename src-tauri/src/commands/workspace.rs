@@ -204,41 +204,43 @@ fn vscode_candidates() -> Vec<PathBuf> {
     candidates
 }
 
+/// Starts the first terminal candidate that launches, and reports every attempt
+/// when none does.
+///
+/// Deliberately free of `cfg`: the Windows and Linux terminal lists used to carry
+/// their own copy of this loop behind a platform gate, where a type error stayed
+/// invisible on macOS until CI compiled it.
+fn spawn_first_terminal<F>(candidates: &[(&str, &[&str])], mut spawn: F) -> Result<(), CommandError>
+where
+    F: FnMut(&str, &[&str]) -> Result<(), CommandError>,
+{
+    let mut errors = Vec::new();
+    for (program, args) in candidates {
+        match spawn(program, args) {
+            Ok(()) => return Ok(()),
+            Err(error) => errors.push(format!("{program}: {}", error.message)),
+        }
+    }
+    Err(CommandError::new(
+        "open_failed",
+        format!("failed to open terminal: {}", errors.join("; ")),
+    ))
+}
+
 #[cfg(target_os = "windows")]
 fn open_terminal(path: &str) -> Result<(), CommandError> {
     let workspace = PathBuf::from(path);
-    let mut errors = Vec::new();
-
-    let mut windows_terminal = Command::new("wt");
-    windows_terminal.args(["-d", path]);
-    match spawn_command(windows_terminal) {
-        Ok(()) => return Ok(()),
-        Err(error) => errors.push(format!("wt: {error}")),
-    }
-
-    let mut pwsh = Command::new("pwsh");
-    pwsh.arg("-NoExit").current_dir(&workspace);
-    match spawn_command(pwsh) {
-        Ok(()) => return Ok(()),
-        Err(error) => errors.push(format!("pwsh: {error}")),
-    }
-
-    let mut powershell = Command::new("powershell");
-    powershell.arg("-NoExit").current_dir(&workspace);
-    match spawn_command(powershell) {
-        Ok(()) => return Ok(()),
-        Err(error) => errors.push(format!("powershell: {error}")),
-    }
-
-    let mut cmd = Command::new("cmd");
-    cmd.arg("/K").current_dir(&workspace);
-    match spawn_command(cmd) {
-        Ok(()) => Ok(()),
-        Err(error) => {
-            errors.push(format!("cmd: {error}"));
-            Err(format!("failed to open terminal: {}", errors.join("; ")))
-        }
-    }
+    let candidates: [(&str, &[&str]); 4] = [
+        ("wt", &["-d", path]),
+        ("pwsh", &["-NoExit"]),
+        ("powershell", &["-NoExit"]),
+        ("cmd", &["/K"]),
+    ];
+    spawn_first_terminal(&candidates, |program, args| {
+        let mut command = Command::new(program);
+        command.args(args).current_dir(&workspace);
+        spawn_command(command)
+    })
 }
 
 #[cfg(target_os = "macos")]
@@ -250,22 +252,18 @@ fn open_terminal(path: &str) -> Result<(), CommandError> {
 
 #[cfg(all(not(target_os = "windows"), not(target_os = "macos")))]
 fn open_terminal(path: &str) -> Result<(), CommandError> {
+    let workspace = PathBuf::from(path);
     let candidates: [(&str, &[&str]); 4] = [
         ("x-terminal-emulator", &["--working-directory", path]),
         ("gnome-terminal", &["--working-directory", path]),
         ("konsole", &["--workdir", path]),
         ("xfce4-terminal", &["--working-directory", path]),
     ];
-    let mut errors = Vec::new();
-    for (executable, args) in candidates {
-        let mut command = Command::new(executable);
-        command.args(args);
-        match spawn_command(command) {
-            Ok(()) => return Ok(()),
-            Err(error) => errors.push(format!("{executable}: {error}")),
-        }
-    }
-    Err(format!("failed to open terminal: {}", errors.join("; ")))
+    spawn_first_terminal(&candidates, |program, args| {
+        let mut command = Command::new(program);
+        command.args(args).current_dir(&workspace);
+        spawn_command(command)
+    })
 }
 
 #[cfg(test)]
@@ -284,6 +282,54 @@ mod launch_arg_tests {
         assert!(
             launch_workspace_arg(vec![PathBuf::from("missing-orcasvn-dir")].into_iter(), &cwd)
                 .is_none()
+        );
+    }
+}
+
+#[cfg(test)]
+mod terminal_tests {
+    use super::spawn_first_terminal;
+    use crate::models::CommandError;
+
+    fn attempts() -> Vec<(&'static str, &'static [&'static str])> {
+        vec![("wt", &["-d"]), ("pwsh", &["-NoExit"])]
+    }
+
+    #[test]
+    fn the_first_terminal_that_starts_wins() {
+        // The closure must outlive the call, so record owned names.
+        let mut tried: Vec<String> = Vec::new();
+        let result = spawn_first_terminal(&attempts(), |program, _| {
+            tried.push(program.to_string());
+            if program == "wt" {
+                Err(CommandError::new("open_failed", "not installed"))
+            } else {
+                Ok(())
+            }
+        });
+        assert!(result.is_ok());
+        assert_eq!(tried, ["wt", "pwsh"]);
+    }
+
+    #[test]
+    fn every_failed_attempt_is_reported_with_its_own_detail() {
+        let error = spawn_first_terminal(&attempts(), |program, _| {
+            Err(CommandError::new(
+                "open_failed",
+                format!("{program} is missing"),
+            ))
+        })
+        .unwrap_err();
+        assert_eq!(error.code, "open_failed");
+        assert!(
+            error.message.contains("wt: wt is missing"),
+            "{}",
+            error.message
+        );
+        assert!(
+            error.message.contains("pwsh: pwsh is missing"),
+            "{}",
+            error.message
         );
     }
 }
