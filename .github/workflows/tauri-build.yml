@@ -120,6 +120,23 @@ jobs:
           svnadmin --version --quiet
       - name: Build and run regression checks
         run: npm run check
+      - name: Give Windows a numeric installer version
+        if: matrix.platform == 'windows-latest'
+        shell: bash
+        # MSI stores the version in four 16-bit fields, so build metadata above
+        # 65535 (our 20261026) cannot be represented and bundling fails outright.
+        # The installer therefore carries the three-part version while the app
+        # keeps showing the full one from package.json.
+        run: |
+          node -e "
+            const fs = require('fs');
+            const file = 'src-tauri/tauri.conf.json';
+            const config = JSON.parse(fs.readFileSync(file, 'utf8'));
+            config.version = config.version.split('+')[0];
+            fs.writeFileSync(file, JSON.stringify(config, null, 2) + '\n');
+          "
+          node -p "'Windows installer version: ' + require('./src-tauri/tauri.conf.json').version"
+
       - name: Build and upload installers to draft
         uses: tauri-apps/tauri-action@v0.6.2
         env:
