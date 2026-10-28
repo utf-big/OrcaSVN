@@ -246,10 +246,7 @@ mod unversioned_stash_tests {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-unversioned-stash-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         let source = root.join("new-dir");
         fs::create_dir_all(source.join("empty")).unwrap();

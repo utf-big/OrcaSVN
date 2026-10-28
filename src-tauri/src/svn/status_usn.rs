@@ -803,10 +803,7 @@ mod tests {
         use std::time::{SystemTime, UNIX_EPOCH};
         let base = std::env::temp_dir().join(format!(
             "orcasvn-native-usn-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         let root = base.join("wc");
         fs::create_dir_all(&root).unwrap();

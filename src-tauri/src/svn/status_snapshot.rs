@@ -821,10 +821,7 @@ mod tests {
     fn directory_reuse_detects_edits_deletions_moves_and_nested_structure() {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-directory-reuse-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         fs::create_dir_all(root.join("a")).unwrap();
         fs::create_dir_all(root.join("b")).unwrap();
@@ -916,10 +913,7 @@ mod tests {
     fn concurrent_snapshot_writers_keep_inventory_and_status_paired() {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-snapshot-writers-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         let directory = root.join("cache");
         fs::create_dir_all(&directory).unwrap();
@@ -958,10 +952,7 @@ mod tests {
     fn temporary_svn_files_are_skipped_and_metadata_files_invalidate_cache() {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-inventory-metadata-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         fs::create_dir_all(root.join(".svn/tmp")).unwrap();
         fs::create_dir_all(root.join(".svn/pristine/aa")).unwrap();

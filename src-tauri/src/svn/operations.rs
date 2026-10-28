@@ -1973,10 +1973,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-commit-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -2286,10 +2283,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-drift-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -2355,6 +2349,27 @@ mod tests {
         std::fs::remove_dir_all(&directory).unwrap();
     }
 
+    /// macOS compares file names after Unicode normalisation, so an NFC entry in
+    /// the repository matches an NFD name on disk. ext4 and NTFS keep the two
+    /// spellings apart, which makes the duplicate and mismatch scenarios below
+    /// impossible to reproduce there — their assertions would be wrong, not the
+    /// code. This reports whether the filesystem folds the spellings together.
+    fn filesystem_folds_normalization(directory: &Path) -> bool {
+        let probe = directory.join("probe-normalization");
+        if std::fs::create_dir_all(&probe).is_err() {
+            return false;
+        }
+        let nfc = probe.join("カスタマイズ.txt");
+        let nfd = probe.join("カスタマイス\u{3099}.txt");
+        if std::fs::write(&nfc, b"probe").is_err() {
+            let _ = std::fs::remove_dir_all(&probe);
+            return false;
+        }
+        let folds = nfd.exists();
+        let _ = std::fs::remove_dir_all(&probe);
+        folds
+    }
+
     /// The real-world case: the repository itself holds one file under two
     /// spellings. macOS materializes only one, so a fresh checkout always leaves
     /// a phantom `missing` entry. Cleanup must be a repository deletion, and a
@@ -2371,12 +2386,14 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-dup-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
+        if !filesystem_folds_normalization(&directory) {
+            eprintln!("Skipping duplicate-name test: this filesystem keeps NFC and NFD apart");
+            std::fs::remove_dir_all(&directory).unwrap();
+            return;
+        }
         let repository = directory.join("repository");
         assert!(Command::new("svnadmin")
             .arg("create")
@@ -2499,10 +2516,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-stream-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -2586,10 +2600,7 @@ mod tests {
         let target = std::env::temp_dir().join(format!(
             "orcasvn-retry-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         let seen = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
         let recorded = seen.clone();
@@ -2630,10 +2641,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-reserved-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -2725,10 +2733,7 @@ mod tests {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-count-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(root.join("a/b")).unwrap();
         std::fs::create_dir_all(root.join(".svn")).unwrap();
@@ -2772,10 +2777,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-resume-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -2934,10 +2936,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-salvage-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");
@@ -3129,10 +3128,7 @@ svn: E130003: Malformed XML: no element found at line 41";
         let root = std::env::temp_dir().join(format!(
             "orcasvn-nfd-probe-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(root.join("P2026.026")).unwrap();
         let nfc = "カスタマイズ.xlsx";
@@ -3201,12 +3197,14 @@ svn: E130003: Malformed XML: no element found at line 41";
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-nfc-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
+        if !filesystem_folds_normalization(&directory) {
+            eprintln!("Skipping name-mismatch test: this filesystem keeps NFC and NFD apart");
+            std::fs::remove_dir_all(&directory).unwrap();
+            return;
+        }
         let repository = directory.join("repository");
         assert!(Command::new("svnadmin")
             .arg("create")
@@ -3287,10 +3285,7 @@ svn: E130003: Malformed XML: no element found at line 41";
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-resolve-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         let repository = directory.join("repository");

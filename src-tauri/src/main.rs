@@ -3,6 +3,8 @@
 mod commands;
 mod models;
 mod svn;
+#[cfg(test)]
+mod test_support;
 
 use commands::*;
 

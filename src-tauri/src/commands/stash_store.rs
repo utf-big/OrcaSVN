@@ -200,10 +200,7 @@ mod tests {
         std::env::temp_dir().join(format!(
             "orcasvn-stash-store-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ))
     }
 

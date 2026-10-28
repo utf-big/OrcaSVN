@@ -301,10 +301,7 @@ mod tests {
         let directory = std::env::temp_dir().join(format!(
             "orcasvn-encoding-test-{}-{}",
             std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         std::fs::create_dir_all(&directory).unwrap();
         struct Cleanup(PathBuf);

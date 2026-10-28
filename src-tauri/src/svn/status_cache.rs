@@ -537,10 +537,7 @@ mod tests {
     fn inventory_detects_same_size_edits_and_does_not_follow_symlinks() {
         let root = std::env::temp_dir().join(format!(
             "orcasvn-inventory-{}",
-            SystemTime::now()
-                .duration_since(UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
+            crate::test_support::unique_temp_suffix()
         ));
         fs::create_dir(&root).unwrap();
         fs::write(root.join("file"), "aaaa").unwrap();
@@ -593,10 +590,7 @@ mod tests {
             let root = std::env::temp_dir().join(format!(
                 "orcasvn-scopes-{}-{}",
                 std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
+                crate::test_support::unique_temp_suffix()
             ));
             fs::create_dir_all(&root).unwrap();
             let repository = root.join("repo");
@@ -853,10 +847,7 @@ mod tests {
             root: std::env::temp_dir().join(format!(
                 "orcasvn-startup-bench-{}-{}",
                 std::process::id(),
-                SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap()
-                    .as_nanos()
+                crate::test_support::unique_temp_suffix()
             )),
         };
         let inventory = status_snapshot::capture(&root).unwrap();
