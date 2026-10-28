@@ -148,8 +148,6 @@ export default {
       'mine-full': 'Take local version',
       'theirs-full': 'Take repository version',
     },
-    remoteRepository: 'Remote repository',
-    remoteRepositoryUnavailable: 'The repository address of this workspace is not loaded yet',
     openInExplorer: 'Open in File Explorer',
     copyPath: 'Copy Path',
     copyAbsolutePath: 'Copy Absolute Path',
@@ -386,6 +384,8 @@ export default {
     blame: 'Blame',
     settings: 'Settings',
     refresh: 'Refresh',
+    remoteRepository: 'Remote repository',
+    remoteRepositoryUnavailable: 'The repository address of this workspace is not loaded yet',
     openIn: 'Open in',
   },
   openIn: {

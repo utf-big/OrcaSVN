@@ -148,8 +148,6 @@ export default {
       'mine-full': '내 버전 사용',
       'theirs-full': '저장소 버전 사용',
     },
-    remoteRepository: '원격 저장소',
-    remoteRepositoryUnavailable: '이 작업 복사본의 저장소 주소를 아직 읽지 못했습니다',
     openInExplorer: '파일 탐색기에서 열기',
     copyPath: '경로 복사',
     copyAbsolutePath: '절대 경로 복사',
@@ -386,6 +384,8 @@ export default {
     blame: '블레임',
     settings: '설정',
     refresh: '새로고침',
+    remoteRepository: '원격 저장소',
+    remoteRepositoryUnavailable: '이 작업 복사본의 저장소 주소를 아직 읽지 못했습니다',
     openIn: '다음으로 열기',
   },
   openIn: {

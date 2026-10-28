@@ -53,10 +53,10 @@ function harness(status = 'modified', path = 'file.ts') {
     '@/utils/statusAction': loadStatusAction(),
   }
   const script = fs.readFileSync('src/views/WorkspaceView.vue', 'utf8').match(/<script setup lang="ts">([\s\S]*?)<\/script>/)[1]
-  const code = ts.transpileModule(script + '\nexports.actions = { openRemoteRepository, remoteRepositoryUrl, handleFileAction, handleScheduleDelete, handleResolve, handleRepairNames, handleDeleteDuplicates, fileActionLabel, pendingFileAction, canScheduleDelete, canResolve, canRepairName, canDeleteDuplicate };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
+  const code = ts.transpileModule(script + '\nexports.actions = { handleFileAction, handleScheduleDelete, handleResolve, handleRepairNames, handleDeleteDuplicates, fileActionLabel, pendingFileAction, canScheduleDelete, canResolve, canRepairName, canDeleteDuplicate };', { compilerOptions: { module: ts.ModuleKind.CommonJS } }).outputText
   const context = { exports: {}, document: { removeEventListener() {} }, require: name => { assert.ok(name in mocks, name); return mocks[name] } }
   vm.runInNewContext(code, context)
-  return { ...context.exports.actions, file, store, confirmation, dialogs, operations, opened,
+  return { ...context.exports.actions, file, store, confirmation, dialogs, operations,
     refreshes: () => refreshes, setOperation: fn => { operation = fn }, unmount: () => unmount() }
 }
 
@@ -297,19 +297,4 @@ test('deleting duplicates keeps the count-only message for several targets', asy
   h.confirmation.resolve('confirm')
   await pending
   assert.deepEqual(Array.from(h.operations[0].args[1]), ['a.xlsx', 'b.xlsx'])
-})
-
-test('the remote repository button opens the working copy URL in the browser', async () => {
-  const h = harness()
-  assert.equal(h.remoteRepositoryUrl.value, 'http://svn.example/repo/trunk')
-  await h.openRemoteRepository()
-  assert.deepEqual(h.opened, ['http://svn.example/repo/trunk'])
-})
-
-test('the remote repository button does nothing while the address is unknown', async () => {
-  const h = harness()
-  h.store.svnInfo = null
-  assert.equal(h.remoteRepositoryUrl.value, '')
-  await h.openRemoteRepository()
-  assert.deepEqual(h.opened, [])
 })

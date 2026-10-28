@@ -148,8 +148,6 @@ export default {
       'mine-full': '采用本地版本',
       'theirs-full': '采用仓库版本',
     },
-    remoteRepository: '远程仓库',
-    remoteRepositoryUnavailable: '尚未读取到工作区仓库地址',
     openInExplorer: '在资源管理器中打开',
     copyPath: '复制路径',
     copyAbsolutePath: '复制绝对路径',
@@ -386,6 +384,8 @@ export default {
     blame: '追溯',
     settings: '设置',
     refresh: '刷新',
+    remoteRepository: '远程仓库',
+    remoteRepositoryUnavailable: '尚未读取到工作区仓库地址',
     openIn: '打开方式',
   },
   openIn: {

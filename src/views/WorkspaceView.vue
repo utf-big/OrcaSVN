@@ -271,12 +271,6 @@
             <el-icon><Connection /></el-icon>
             {{ $t('diff.title') }}
           </span>
-          <el-button class="remote-repository-button" text size="small" :disabled="!remoteRepositoryUrl"
-            :title="remoteRepositoryUrl || $t('workspace.remoteRepositoryUnavailable')"
-            @click="openRemoteRepository">
-            <el-icon><Link /></el-icon>
-            {{ $t('workspace.remoteRepository') }}
-          </el-button>
         </div>
         <div class="panel-content" :aria-busy="isLoadingDiff">
           <GlassLoading :active="isLoadingDiff" :label="$t('common.loading')" />
@@ -325,7 +319,6 @@
 import { h, ref, computed, nextTick, onBeforeUnmount, onMounted, reactive, watch } from 'vue'
 import { useRouter } from 'vue-router'
 import { useWorkspaceStore } from '@/stores/workspace'
-import { open } from '@tauri-apps/plugin-shell'
 import { deleteUnversioned, revealWorkspaceFile, svnCleanup, svnDelete, svnDeleteDuplicates, svnRepairNames, svnResolve, svnRevert, svnDiff } from '@/api/svn'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -444,20 +437,6 @@ const closeWorkspace = () => {
 const doCheckout = () => router.push({ name: 'checkout' })
 
 const doCommit = () => router.push({ name: 'commit' })
-
-/** The remote address of the current working copy, empty when it is unknown. */
-const remoteRepositoryUrl = computed(() => workspaceStore.svnInfo?.url ?? '')
-
-/** Opens the repository in the system browser; SVN URLs are web addresses. */
-const openRemoteRepository = async () => {
-  const url = remoteRepositoryUrl.value
-  if (!url) return
-  try {
-    await open(url)
-  } catch (error) {
-    ElMessage.error(`${t('common.error')}：${errorMessage(error)}`)
-  }
-}
 
 const doCleanup = async () => {
   if (!workspaceStore.currentPath) return
@@ -1398,17 +1377,6 @@ const handleResolve = (file: SvnStatus, strategy: ResolveStrategy) => runFileOpe
 
 .sidebar-row b {
   font-size: var(--app-font-size-2xs);
-}
-
-.remote-repository-button {
-  height: 24px;
-  padding: 0 6px;
-  color: var(--md-sys-color-on-surface-variant);
-  font-size: var(--app-font-size-sm);
-}
-
-.remote-repository-button .el-icon {
-  margin-right: 4px;
 }
 
 .repository-meta {

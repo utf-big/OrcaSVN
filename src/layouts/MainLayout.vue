@@ -63,6 +63,16 @@
             </el-dropdown-menu>
           </template>
         </el-dropdown>
+        <button
+          class="tool-button"
+          :disabled="!remoteRepositoryUrl"
+          :aria-label="$t('menu.remoteRepository')"
+          :title="remoteRepositoryUrl || $t('menu.remoteRepositoryUnavailable')"
+          @click="openRemoteRepositoryInBrowser"
+        >
+          <el-icon><Link /></el-icon>
+          <span>{{ $t('menu.remoteRepository') }}</span>
+        </button>
       </div>
 
       <el-dropdown class="workspace-switcher" trigger="click" popper-class="workspace-switcher-dropdown" @command="handleWorkspaceCommand">
@@ -254,6 +264,7 @@ import {
   Terminal,
 } from '@/components/icons/materialIcons'
 import { errorMessage } from '@/utils/errors'
+import { useRemoteRepository } from '@/composables/useRemoteRepository'
 
 const router = useRouter()
 const route = useRoute()
@@ -262,6 +273,7 @@ const workspaceStore = useWorkspaceStore()
 const stashStore = useStashStore()
 const checkoutStore = useCheckoutStore()
 const { loadWorkspace, openWorkspace, refreshStatus, refreshStatusIfStale, restoreLastWorkspace } = useWorkspace()
+const { remoteRepositoryUrl, openRemoteRepository } = useRemoteRepository()
 const {
   currentVersion: appVersion,
   state: updateState,
@@ -317,6 +329,15 @@ const handleWorkspaceCommand = async (command: string) => {
 }
 
 const removeWorkspace = (path: string) => workspaceStore.removeRecentWorkspace(path)
+
+/** Opens the repository address in the system browser. */
+const openRemoteRepositoryInBrowser = async () => {
+  try {
+    await openRemoteRepository()
+  } catch (err) {
+    ElMessage.error(`${t('common.error')}：${errorMessage(err)}`)
+  }
+}
 
 const openCurrentWorkspaceIn = async (target: OpenWorkspaceTarget) => {
   if (!workspaceStore.currentPath) return

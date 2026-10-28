@@ -148,8 +148,6 @@ export default {
       'mine-full': '採用本機版本',
       'theirs-full': '採用庫存版本',
     },
-    remoteRepository: '遠端倉庫',
-    remoteRepositoryUnavailable: '尚未讀取到工作區倉庫位址',
     openInExplorer: '在檔案總管中開啟',
     copyPath: '複製路徑',
     copyAbsolutePath: '複製絕對路徑',
@@ -386,6 +384,8 @@ export default {
     blame: '追溯',
     settings: '設定',
     refresh: '重新整理',
+    remoteRepository: '遠端倉庫',
+    remoteRepositoryUnavailable: '尚未讀取到工作區倉庫位址',
     openIn: '開啟方式',
   },
   openIn: {

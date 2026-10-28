@@ -148,8 +148,6 @@ export default {
       'mine-full': '自分のバージョンを使用',
       'theirs-full': 'リポジトリのバージョンを使用',
     },
-    remoteRepository: 'リモートリポジトリ',
-    remoteRepositoryUnavailable: 'この作業コピーのリポジトリ URL はまだ取得できていません',
     openInExplorer: 'ファイルマネージャーで開く',
     copyPath: 'パスをコピー',
     copyAbsolutePath: '絶対パスをコピー',
@@ -386,6 +384,8 @@ export default {
     blame: 'ブレイム',
     settings: '設定',
     refresh: '更新',
+    remoteRepository: 'リモートリポジトリ',
+    remoteRepositoryUnavailable: 'この作業コピーのリポジトリ URL はまだ取得できていません',
     openIn: '開く場所',
   },
   openIn: {
