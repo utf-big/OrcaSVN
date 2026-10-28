@@ -7,6 +7,14 @@ export async function configureSvnExecutable(executable?: string): Promise<strin
   })
 }
 
+/**
+ * True once the checkout has created the working copy (`.svn` exists). SVN
+ * creates it before transferring files, so this is true very early.
+ */
+export async function isWorkingCopy(path: string): Promise<boolean> {
+  return invoke<boolean>('svn_path_is_working_copy', { path })
+}
+
 export interface CheckoutReport {
   output: string
   attempts: number

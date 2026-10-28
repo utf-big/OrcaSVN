@@ -5,6 +5,16 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+/// Whether a directory is a working copy yet.
+///
+/// A checkout creates `.svn` before it transfers anything, so this becomes true
+/// within the first moments of a checkout. The frontend uses it to hold back the
+/// workspace switch until SVN commands can actually run against the directory.
+#[tauri::command]
+pub(crate) fn svn_path_is_working_copy(path: String) -> bool {
+    Path::new(&path).join(".svn").exists()
+}
+
 /// Workspace directory passed on the command line, e.g. `orcasvn <path>`.
 #[tauri::command]
 pub(crate) fn launch_workspace_path() -> Option<String> {

@@ -16,6 +16,7 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             configure_svn_executable,
             launch_workspace_path,
+            svn_path_is_working_copy,
             svn_checkout_stream,
             svn_checkout_salvage,
             svn_resume_checkout,

@@ -144,8 +144,9 @@ import { useRouter } from 'vue-router'
 import { listen, type UnlistenFn } from '@tauri-apps/api/event'
 import { useWorkspaceStore } from '@/stores/workspace'
 import { useCheckoutStore } from '@/stores/checkout'
-import { svnCancel, svnCheckoutSalvage, svnCheckoutStream, svnCleanup } from '@/api/svn'
+import { isWorkingCopy, svnCancel, svnCheckoutSalvage, svnCheckoutStream, svnCleanup } from '@/api/svn'
 import { useWorkspace } from '@/composables/useWorkspace'
+import { waitForWorkingCopy } from '@/utils/workspaceAttach'
 import { open } from '@tauri-apps/plugin-dialog'
 import { useI18n } from 'vue-i18n'
 import { ElMessage } from 'element-plus/es/components/message/index'
@@ -250,14 +251,11 @@ const doCheckout = async () => {
   missingFiles.value = []
   state.value = 'running'
   loading.value = true
-  // The target becomes the current workspace immediately, so it can be opened
-  // from the sidebar while the checkout is still running. Its status is unknown
-  // until the first scan, so the list is cleared and marked unverified.
   checkoutStore.begin(form.url, form.path, form.revision)
-  workspaceStore.setCurrentPath(form.path)
-  workspaceStore.setStatusList([])
-  workspaceStore.setSvnInfo(null)
-  workspaceStore.setStatusIsStale(true)
+  // Switch the workspace as soon as SVN has created the working copy, which it
+  // does before transferring files. Switching sooner leaves every SVN-backed
+  // view querying a directory that is not a working copy yet (E155007).
+  void attachWorkspaceWhenReady(form.path)
   startElapsedTimer()
   stopListening()
   unlisten = await listen<{ kind: CheckoutLineKind; line: string }>('checkout-progress', event => {
@@ -298,6 +296,7 @@ const doCheckout = async () => {
   } finally {
     loading.value = false
     cancelled.value = false
+    cancelWorkspaceAttach()
     stopElapsedTimer()
     stopListening()
   }
@@ -316,6 +315,7 @@ const doSalvage = async () => {
   Object.assign(progress, createProgressState())
   state.value = 'running'
   checkoutStore.begin(form.url, form.path, form.revision)
+  void attachWorkspaceWhenReady(form.path)
   loading.value = true
   startElapsedTimer()
   stopListening()
@@ -345,9 +345,33 @@ const doSalvage = async () => {
   } finally {
     loading.value = false
     cancelled.value = false
+    cancelWorkspaceAttach()
     stopElapsedTimer()
     stopListening()
   }
+}
+
+let attachGeneration = 0
+
+/**
+ * Makes the target the current workspace once SVN has created `.svn` in it, and
+ * marks its file list as unverified until the first scan runs.
+ */
+const attachWorkspaceWhenReady = async (path: string) => {
+  const generation = ++attachGeneration
+  const ready = await waitForWorkingCopy(() => isWorkingCopy(path), {
+    shouldStop: () => generation !== attachGeneration,
+  })
+  if (!ready || generation !== attachGeneration) return
+  workspaceStore.setCurrentPath(path)
+  workspaceStore.setStatusList([])
+  workspaceStore.setSvnInfo(null)
+  workspaceStore.setStatusIsStale(true)
+}
+
+/** Stops a pending switch, e.g. when the checkout ended without a working copy. */
+const cancelWorkspaceAttach = () => {
+  attachGeneration += 1
 }
 
 /** Clears a lock left behind by the interrupted checkout. */
@@ -381,6 +405,7 @@ const resetForm = () => {
 }
 
 onUnmounted(() => {
+  cancelWorkspaceAttach()
   stopElapsedTimer()
   stopListening()
 })
